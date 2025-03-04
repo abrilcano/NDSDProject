@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <array>
 #include <cmath>
 
 class Heat
@@ -26,14 +27,16 @@ public:
         // grid(ny + 2 , std::vector<double>(nx + 2, 1.0)),
         // newGrid(ny + 2, std::vector<double>(nx + 2, 1.0))
         grid(nx + 2 , std::vector<double>(ny + 2, - 1.0)),
-        newGrid(nx + 2, std::vector<double>(ny + 2, - 1.0)) 
+        newGrid(nx + 2, std::vector<double>(ny + 2, - 1.0)),
+        contiguosGrid((nx + 2) * (ny + 2), -1.0),
+        contiguosNewGrid((nx + 2) * (ny + 2), -1.0)
         {}
 
   void initializeGrid(double initialTemp);
   void initializeGhostValues();
-  void initialCondition(double cornerTemp, int startx, int endx, int starty, int endy);
   void initialCondition(double cornerTemp, int x, int y);
   void printGrid();
+  int get(int i, int j);
   void output(int timeStep);
   void applyBoundaryConditions();
   void solve();
@@ -59,6 +62,9 @@ protected:
   int id; // Processor id
   std::vector<std::vector<double>> grid;
   std::vector<std::vector<double>> newGrid;
+  // contiguos single array
+  std::vector<double> contiguosNewGrid;
+  std::vector<double> contiguosGrid;
 
 };
 
