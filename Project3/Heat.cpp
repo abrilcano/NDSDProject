@@ -25,13 +25,13 @@ void Heat::initializeGhostValues()
     int val = 9 - id; 
     for (int i = 0; i < nx + 2; ++i)
     {
-        contiguosGrid[i * (nx+2) + 0] = val;
-        contiguosGrid[i * (nx+2) + (ny+1)] = val;
+        contiguosGrid[get(i,0)] = val;
+        contiguosGrid[get (i, ny + 1)] = val;
     }
     for (int j = 0; j < ny + 2 ; ++j)
     {
-        contiguosGrid[0 * (nx+2) + j] = val;
-        contiguosGrid[(nx+1) * (nx+2) + j] = val;
+        contiguosGrid[get(0,j)] = val;
+        contiguosGrid[get(nx + 1, j)] = val;
     }
 }
 
@@ -43,25 +43,25 @@ void Heat::initialCondition(double cornerTemp, int x, int y)
     {
         for (int j = 1; j < ny + 1; ++j)
         {
-            contiguosGrid[i * (nx+2) + j] = id;
+            contiguosGrid[get(i,j)] = id;
         }
     }
 
     if (x == 0 && y == 0)
     {
-        contiguosGrid[1 * (nx+2) + 1] = 6;
+        contiguosGrid[get(1,1)] = 6;
     }
     if (x == px - 1 && y == 0)
     {
-        contiguosGrid[1 * (nx+2) + (nx)] = 7;
+        contiguosGrid[get(1,nx)] = 7;
     }
     if (x == 0 && y == py - 1)
     {
-        contiguosGrid[(nx) * (nx+2) + 1] = 8;
+        contiguosGrid[get(nx,1)] = 8;
     }
     if (x == px - 1 && y == py - 1)
     {
-        contiguosGrid[(nx)* (nx+2) + (ny)] = 9;
+        contiguosGrid[get(nx,ny)] = 9;
     }
 
 }
@@ -222,26 +222,26 @@ void Heat::solve()
         if (neighbors[0] != -1)
         {
             //MPI_Send(&grid[1][1], ny, MPI_DOUBLE, neighbors[0], id, MPI_COMM_WORLD);
-            MPI_Send(&contiguosGrid[1 * (nx + 2) + 1], 1, columnType, neighbors[0], id, MPI_COMM_WORLD);
+            MPI_Send(&contiguosGrid[get(1,1)], 1, columnType, neighbors[0], id, MPI_COMM_WORLD);
         }
         // Receive data from the right
         if (neighbors[2] != -1)
         {
             //MPI_Recv(&grid[nx + 1][1], ny, MPI_DOUBLE, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Recv(&contiguosGrid[1 * (nx + 2) + (nx + 1)], 1, columnType, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&contiguosGrid[get(1,nx + 1)], 1, columnType, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         // Send data to the right
         if (neighbors[2] != -1)
         {
             //MPI_Send(&grid[nx][1], ny, MPI_DOUBLE, neighbors[2], id, MPI_COMM_WORLD);
-            MPI_Send(&contiguosGrid[1 * (nx + 2) + nx], 1, columnType, neighbors[2], id, MPI_COMM_WORLD);
+            MPI_Send(&contiguosGrid[get(1,nx)], 1, columnType, neighbors[2], id, MPI_COMM_WORLD);
         }
         // Receive data from the left
         if (neighbors[0] != -1)
         {
             //MPI_Recv(&grid[0][1], ny, MPI_DOUBLE, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Recv(&contiguosGrid[1 * (nx+2) + 0], 1, columnType, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&contiguosGrid[get(1,0)], 1, columnType, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         // Rows -------------------------
@@ -249,23 +249,23 @@ void Heat::solve()
         // Send data to the bottom
         if (neighbors[3] != -1)
         {
-            MPI_Send(&contiguosGrid[ny * (nx + 2) + 1], nx , MPI_DOUBLE, neighbors[3], id, MPI_COMM_WORLD);
+            MPI_Send(&contiguosGrid[get(ny,1)], nx , MPI_DOUBLE, neighbors[3], id, MPI_COMM_WORLD);
         }
         // Receive data from the top
         if (neighbors[1] != -1)
         {
-            MPI_Recv(&contiguosGrid[0 * (nx + 2) + 1], nx, MPI_DOUBLE, neighbors[1], neighbors[1], MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+            MPI_Recv(&contiguosGrid[get(0,1)], nx, MPI_DOUBLE, neighbors[1], neighbors[1], MPI_COMM_WORLD, MPI_STATUS_IGNORE );
         }
 
         // Send data to the top
         if (neighbors[1] != -1)
         {
-            MPI_Send(&contiguosGrid[1 * (nx + 2) + 1], nx, MPI_DOUBLE, neighbors[1], id, MPI_COMM_WORLD);
+            MPI_Send(&contiguosGrid[get(1,1)], nx, MPI_DOUBLE, neighbors[1], id, MPI_COMM_WORLD);
         }
         // Receive data from the bottom
         if (neighbors[3] != -1)
         {
-            MPI_Recv(&contiguosGrid[(ny + 1) * (nx + 2) + 1], nx, MPI_DOUBLE, neighbors[3], neighbors[3], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&contiguosGrid[get(ny + 1,1)], nx, MPI_DOUBLE, neighbors[3], neighbors[3], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         MPI_Barrier(MPI_COMM_WORLD);
