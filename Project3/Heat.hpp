@@ -4,7 +4,6 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <array>
 #include <cmath>
 
 class Heat
@@ -15,30 +14,24 @@ public:
       : alpha(alpha), dt(dt), dx(dx), L(L), threshold(threshold), maxSteps(maxSteps),
         n(static_cast<int>(L / dx)),
         p(p),
-        // py(floor(sqrt(p))),
-        // px(p / floor(sqrt(p))), 
+        id(id),
         px(floor(sqrt(p))),
         py(p / px),
         nx(floor(n / px)),
         ny(floor(n / py)),
-        id(id),
         rx(n % px),
         ry(n % py),
-        // grid(ny + 2 , std::vector<double>(nx + 2, 1.0)),
-        // newGrid(ny + 2, std::vector<double>(nx + 2, 1.0))
-        grid(nx + 2 , std::vector<double>(ny + 2, - 1.0)),
-        newGrid(nx + 2, std::vector<double>(ny + 2, - 1.0)),
-        contiguosGrid((nx + 2) * (ny + 2), -1.0),
-        contiguosNewGrid((nx + 2) * (ny + 2), -1.0)
+        grid((nx + 2) * (ny + 2), -1.0),
+        newGrid((nx + 2) * (ny + 2), -1.0)
         {}
 
-  void initializeGrid(double initialTemp);
   void initializeGhostValues();
   void initialCondition(double cornerTemp, int x, int y);
   void printGrid();
   int get(int i, int j);
   void output(int timeStep);
-  void applyBoundaryConditions();
+  void writeVTK(const std::string &filename);
+  void applyBoundaryConditions(double cornerTemp, int x, int y);
   void solve();
 
 protected:
@@ -50,6 +43,7 @@ protected:
   int maxSteps;     // Maximum number of steps
   int n;            // Number of grid points
   int p;            // Number of processors
+  int id;           // Processor id
   // Processors working in each direction
   int px;
   int py;
@@ -59,12 +53,9 @@ protected:
   // Remainder grid points
   int rx = n % px;
   int ry = n % py;
-  int id; // Processor id
-  std::vector<std::vector<double>> grid;
-  std::vector<std::vector<double>> newGrid;
-  // contiguos single array
-  std::vector<double> contiguosNewGrid;
-  std::vector<double> contiguosGrid;
+  // grid
+  std::vector<double> newGrid;
+  std::vector<double> grid;
 
 };
 

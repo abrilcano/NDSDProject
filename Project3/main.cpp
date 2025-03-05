@@ -7,9 +7,6 @@
 
 int main(int argc, char* argv[]) {
 
-    // initialize MPI
-    //Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv);
-
     int id;
     int p;
 
@@ -17,14 +14,9 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
     MPI_Comm_size(MPI_COMM_WORLD, &p);
 
-    // if (id == 0){
-    //     std::cout << "Heat equation solver using MPI" << std::endl;
-    // }
-
     // Create an instance of the Heat class
     // alpha, dt, dx, L, threshold, maxSteps
-    Heat heat(0.01, 0.001, 0.1, 0.8, 10e-4, 1, p, id);
-    // Heat heat(0.01, 0.001, 0.1, 0.8, 10e-4, 1, 1, 0);
+    Heat heat(0.01, 0.001, 0.01, 1.0, 10e-6, 40000, p, id);
     
     heat.solve();
 

@@ -14,58 +14,74 @@ int::Heat::get(int i, int j)
     return i * (nx + 2) + j;
 }
 
-// Function to initialize the temperature grid
-void Heat::initializeGrid(double initialCornerTemp)
-{}
-
 void Heat::initializeGhostValues()
 {
 
     // cout << "initializeGhostValues" << endl;
-    int val = 9 - id; 
+    int val = 1; 
     for (int i = 0; i < nx + 2; ++i)
     {
-        contiguosGrid[get(i,0)] = val;
-        contiguosGrid[get (i, ny + 1)] = val;
+        grid[get(i,0)] = val;
+        grid[get (i, ny + 1)] = val;
     }
     for (int j = 0; j < ny + 2 ; ++j)
     {
-        contiguosGrid[get(0,j)] = val;
-        contiguosGrid[get(nx + 1, j)] = val;
+        grid[get(0,j)] = val;
+        grid[get(nx + 1, j)] = val;
     }
 }
 
-// Function to initialize the corner temperatures
-void Heat::initialCondition(double cornerTemp, int x, int y)
+void Heat::initialCondition(double temp, int x, int y)
 {
 
     for (int i = 1; i < nx + 1; ++i)
     {
         for (int j = 1; j < ny + 1; ++j)
         {
-            contiguosGrid[get(i,j)] = id;
+            grid[get(i,j)] = 1;
         }
     }
 
     if (x == 0 && y == 0)
     {
-        contiguosGrid[get(1,1)] = 6;
+        grid[get(1,1)] = temp;
     }
     if (x == px - 1 && y == 0)
     {
-        contiguosGrid[get(1,nx)] = 7;
+        grid[get(1,nx)] = temp;
     }
     if (x == 0 && y == py - 1)
     {
-        contiguosGrid[get(nx,1)] = 8;
+        grid[get(nx,1)] = temp;
     }
     if (x == px - 1 && y == py - 1)
     {
-        contiguosGrid[get(nx,ny)] = 9;
+        grid[get(nx,ny)] = temp;
     }
 
 }
 
+void Heat::applyBoundaryConditions(double temp, int x, int y)
+{
+
+    if (x == 0 && y == 0)
+    {
+        grid[get(1,1)] = temp;
+    }
+    if (x == px - 1 && y == 0)
+    {
+        grid[get(1,nx)] = temp;
+    }
+    if (x == 0 && y == py - 1)
+    {
+        grid[get(nx,1)] = temp;
+    }
+    if (x == px - 1 && y == py - 1)
+    {
+        grid[get(nx,ny)] = temp;
+    }
+
+}
 
 void Heat::printGrid()
 {
@@ -75,35 +91,64 @@ void Heat::printGrid()
         for (int j = 0; j < ny + 2; ++j)
         {
             // cout << fixed << setprecision(1) << grid[get[i,j)] << " ";
-            cout << contiguosGrid[get(i, j)] << " ";
+            cout << grid[get(i, j)] << " ";
         }
         cout << "\n";
     }
 }
 
-// Function to save the temperature grid to a file
-void Heat::output(int timeStep)
+void Heat::writeVTK(const std::string &filename)
 {
-    ofstream file("temperature_step_" + to_string(timeStep) + ".txt");
+    std::ofstream file(filename);
     if (!file)
     {
-        cerr << "Error opening file for writing.\n";
+        std::cerr << "Error: Unable to open file " << filename << " for writing." << std::endl;
         return;
     }
 
-    for (const auto &row : grid)
+    file << "# vtk DataFile Version 3.0\n";
+    file << "2D Heat Diffusion Output\n";
+    file << "ASCII\n";
+    file << "DATASET STRUCTURED_POINTS\n";
+    file << "DIMENSIONS " << nx << " " << ny << " 1\n";
+    file << "ORIGIN 0 0 0\n";  // Adjust if needed
+    file << "SPACING " << dx << " " << dx << " 1\n"; // Uniform grid spacing
+    file << "POINT_DATA " << nx * ny << "\n";
+    file << "SCALARS temperature float 1\n";
+    file << "LOOKUP_TABLE default\n";
+
+    for (int j = 1; j < ny + 1; ++j)
     {
-        for (const auto &temp : row)
+        for (int i = 1; i < nx + 1; ++i)
         {
-            file << fixed << setprecision(4) << temp << " ";
+            file << grid[get(i, j)] << " ";
         }
         file << "\n";
     }
+
     file.close();
+    std::cout << "VTK file written: " << filename << std::endl;
 }
 
-void Heat::applyBoundaryConditions()
-{}
+void Heat::output(int timeStep)
+{
+    // ofstream file("temperature_step_" + to_string(timeStep) + ".txt");
+    // if (!file)
+    // {
+    //     cerr << "Error opening file for writing.\n";
+    //     return;
+    // }
+
+    // for (const auto &row : grid)
+    // {
+    //     for (const auto &temp : row)
+    //     {
+    //         file << fixed << setprecision(4) << temp << " ";
+    //     }
+    //     file << "\n";
+    // }
+    // file.close();
+}
 
 // Function to simulate heat diffusion
 void Heat::solve()
@@ -128,21 +173,21 @@ void Heat::solve()
     {
         nx = nx + ry;
         ny = ny + ry;
-        contiguosGrid.resize((nx + 2) * (ny + 2));
-        contiguosNewGrid.resize((nx + 2) * (ny + 2));
+        grid.resize((nx + 2) * (ny + 2));
+        newGrid.resize((nx + 2) * (ny + 2));
 
     }
     if (rx != 0 && x == px - 1)
     {
         nx = nx + rx;
-        contiguosGrid.resize((nx + 2) * (ny + 2));
-        contiguosNewGrid.resize((nx + 2) * (ny + 2));
+        grid.resize((nx + 2) * (ny + 2));
+        newGrid.resize((nx + 2) * (ny + 2));
     }
     else if (ry != 0 && y == py - 1)
     {
         ny = ny + ry;
-        contiguosGrid.resize((nx + 2) * (ny + 2));
-        contiguosNewGrid.resize((nx + 2) * (ny + 2));
+        grid.resize((nx + 2) * (ny + 2));
+        newGrid.resize((nx + 2) * (ny + 2));
     }
 
     // array of neighbors
@@ -188,15 +233,15 @@ void Heat::solve()
 
     initializeGhostValues();
     // initialCondition(10.0, startx, endx, starty, endy);
-    initialCondition(10.0, x, y);
+    initialCondition(100.0, x, y);
 
     // if (id == 1)
     // {
     //     cout << "Processor " << id << " after initialization: " << endl;
     //     printGrid();
     // }
-    cout << "Processor " << id << " before exchange: " << endl;
-    printGrid();
+    // cout << "Processor " << id << " before exchange: " << endl;
+    // printGrid();
 
     double dx2 = dx * dx;
     double alpha_dt_dx2 = alpha * dt / dx2;
@@ -209,6 +254,7 @@ void Heat::solve()
     MPI_Type_vector(ny, 1, nx + 2, MPI_DOUBLE, &columnType);
     MPI_Type_commit(&columnType);
 
+    writeVTK("heat_diffusiont0.vtk");
 
     for (int step = 0; step < maxSteps; ++step)
     {
@@ -222,26 +268,26 @@ void Heat::solve()
         if (neighbors[0] != -1)
         {
             //MPI_Send(&grid[1][1], ny, MPI_DOUBLE, neighbors[0], id, MPI_COMM_WORLD);
-            MPI_Send(&contiguosGrid[get(1,1)], 1, columnType, neighbors[0], id, MPI_COMM_WORLD);
+            MPI_Send(&grid[get(1,1)], 1, columnType, neighbors[0], id, MPI_COMM_WORLD);
         }
         // Receive data from the right
         if (neighbors[2] != -1)
         {
             //MPI_Recv(&grid[nx + 1][1], ny, MPI_DOUBLE, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Recv(&contiguosGrid[get(1,nx + 1)], 1, columnType, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&grid[get(1,nx + 1)], 1, columnType, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         // Send data to the right
         if (neighbors[2] != -1)
         {
             //MPI_Send(&grid[nx][1], ny, MPI_DOUBLE, neighbors[2], id, MPI_COMM_WORLD);
-            MPI_Send(&contiguosGrid[get(1,nx)], 1, columnType, neighbors[2], id, MPI_COMM_WORLD);
+            MPI_Send(&grid[get(1,nx)], 1, columnType, neighbors[2], id, MPI_COMM_WORLD);
         }
         // Receive data from the left
         if (neighbors[0] != -1)
         {
             //MPI_Recv(&grid[0][1], ny, MPI_DOUBLE, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Recv(&contiguosGrid[get(1,0)], 1, columnType, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&grid[get(1,0)], 1, columnType, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         // Rows -------------------------
@@ -249,23 +295,23 @@ void Heat::solve()
         // Send data to the bottom
         if (neighbors[3] != -1)
         {
-            MPI_Send(&contiguosGrid[get(ny,1)], nx , MPI_DOUBLE, neighbors[3], id, MPI_COMM_WORLD);
+            MPI_Send(&grid[get(ny,1)], nx , MPI_DOUBLE, neighbors[3], id, MPI_COMM_WORLD);
         }
         // Receive data from the top
         if (neighbors[1] != -1)
         {
-            MPI_Recv(&contiguosGrid[get(0,1)], nx, MPI_DOUBLE, neighbors[1], neighbors[1], MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+            MPI_Recv(&grid[get(0,1)], nx, MPI_DOUBLE, neighbors[1], neighbors[1], MPI_COMM_WORLD, MPI_STATUS_IGNORE );
         }
 
         // Send data to the top
         if (neighbors[1] != -1)
         {
-            MPI_Send(&contiguosGrid[get(1,1)], nx, MPI_DOUBLE, neighbors[1], id, MPI_COMM_WORLD);
+            MPI_Send(&grid[get(1,1)], nx, MPI_DOUBLE, neighbors[1], id, MPI_COMM_WORLD);
         }
         // Receive data from the bottom
         if (neighbors[3] != -1)
         {
-            MPI_Recv(&contiguosGrid[get(ny + 1,1)], nx, MPI_DOUBLE, neighbors[3], neighbors[3], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&grid[get(ny + 1,1)], nx, MPI_DOUBLE, neighbors[3], neighbors[3], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         MPI_Barrier(MPI_COMM_WORLD);
@@ -276,13 +322,42 @@ void Heat::solve()
         //     printGrid();
         // }
 
-        cout << "Processor " << id << " after exchange: " << endl;
-        printGrid();
+        // cout << "Processor " << id << " after exchange: " << endl;
+        // printGrid();
+
+        // Apply boundary conditions
+        //applyBoundaryConditions(10.0, x, y);
+
 
         // Compute new temperature values
-        //TODO
+        
+        for (int i = 1; i < nx + 2; ++i)
+        {
+            for (int j = 1; j < ny + 2; ++j)
+            {
+                newGrid[get(i,j)] = grid[get(i,j)] + alpha_dt_dx2 * (grid[get(i - 1,j)] + grid[get(i + 1,j)] + grid[get(i,j - 1)] + grid[get(i,j + 1)] - 4 * grid[get(i,j)]);
+
+                maxChange = max(maxChange, abs(newGrid[get(i,j)] - grid[get(i,j)]));
+            }
+        }
+
+        //check for convergence
+        if (maxChange < threshold)
+        {
+            cout << "Converged in " << step << " steps." << endl;
+            break;
+        }
+
+        // Swap grids
+        grid.swap(newGrid);
+
+        cout << "Step: "<< step << endl;
     }
 
     MPI_Type_free(&columnType);
+
+    if (id ==0){
+        writeVTK("heat_diffusion.vtk");
+    }
 
 }
