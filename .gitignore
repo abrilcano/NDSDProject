@@ -36,5 +36,6 @@
 !*/
 !*.*
 
-# vtk files
+# result files
 *.vtk
+*.txt

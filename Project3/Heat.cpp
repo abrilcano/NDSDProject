@@ -133,7 +133,7 @@ void Heat::writeVTK(const std::string &filename)
 void Heat::writeTXT(int timeStep, int x, int y)
 {
 
-    string filename = "heat_diffusion" + to_string(timeStep) + ".txt";
+    string filename = "output/heat_diffusion" + to_string(timeStep) + ".txt";
 
     if (id == 0)
     {
