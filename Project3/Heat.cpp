@@ -18,7 +18,7 @@ void Heat::initializeGhostValues()
 {
 
     // cout << "initializeGhostValues" << endl;
-    int val = 1; 
+    int val = id-9; 
     for (int i = 0; i < nx + 2; ++i)
     {
         grid[get(i,0)] = val;
@@ -38,7 +38,7 @@ void Heat::initialCondition(double temp, int x, int y)
     {
         for (int j = 1; j < ny + 1; ++j)
         {
-            grid[get(i,j)] = 1;
+            grid[get(i,j)] = id;
         }
     }
 
@@ -130,24 +130,72 @@ void Heat::writeVTK(const std::string &filename)
     std::cout << "VTK file written: " << filename << std::endl;
 }
 
-void Heat::output(int timeStep)
+void Heat::writeTXT(int timeStep, int x, int y)
 {
-    // ofstream file("temperature_step_" + to_string(timeStep) + ".txt");
-    // if (!file)
-    // {
-    //     cerr << "Error opening file for writing.\n";
-    //     return;
-    // }
 
-    // for (const auto &row : grid)
-    // {
-    //     for (const auto &temp : row)
-    //     {
-    //         file << fixed << setprecision(4) << temp << " ";
-    //     }
-    //     file << "\n";
-    // }
-    // file.close();
+    string filename = "heat_diffusion" + to_string(timeStep) + ".txt";
+
+    if (id == 0)
+    {
+        std::remove(filename.c_str());
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    MPI_File file;
+    MPI_File_open(MPI_COMM_WORLD, filename.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
+
+    MPI_Offset offsetD = 0;
+    MPI_Offset offsetH = 0;
+
+    // writng in a csv file (x,y,value)
+
+    // Write header
+    stringstream ss;
+    ss << "x,y,value\n";
+    if (id == 0)
+    {
+        MPI_File_write_at(file, offsetH, ss.str().c_str(), ss.str().size(), MPI_CHAR, MPI_STATUS_IGNORE);
+    }
+    offsetH += ss.str().size();
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // Write data
+    for (int i = 1; i < nx + 1; ++i)
+    {
+        for (int j = 1; j < ny + 1; ++j)
+        {
+            int precision = 15;
+            int globalX = x * nx + (i - 1);
+            int globalY = y * ny + (j - 1);
+
+            stringstream ss, temp;
+            temp << fixed << setprecision(precision) << grid[get(i,j)];
+            ss << globalX << "," << globalY << "," << temp.str();
+
+            string line = ss.str();
+            line = line.substr(0, precision);
+            line += "\n";
+
+            // global lines written
+            offsetD = offsetH + ((nx) * (ny) * (precision + 1)) * id ;
+            // local lines already written
+            offsetD += (j - 1) * (nx * (precision + 1)) + (i - 1) * (precision + 1);
+
+            // if (id == 0)
+            // {
+            //     cout << "Processor " << id << " writing: " << line << " at offset: " << offsetD << endl;
+            //     MPI_File_write_at(file, offsetD, line.c_str(), line.size(), MPI_CHAR, MPI_STATUS_IGNORE);
+            // }
+            // cout << "Processor " << id << " writing: " << line << " at offset: " << offsetD << endl;
+            MPI_File_write_at(file, offsetD, line.c_str(), line.size(), MPI_CHAR, MPI_STATUS_IGNORE);
+
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_File_close(&file);
 }
 
 // Function to simulate heat diffusion
@@ -254,39 +302,34 @@ void Heat::solve()
     MPI_Type_vector(ny, 1, nx + 2, MPI_DOUBLE, &columnType);
     MPI_Type_commit(&columnType);
 
-    writeVTK("heat_diffusiont0.vtk");
-
     for (int step = 0; step < maxSteps; ++step)
     {
         double maxChange = 0.0;
 
         // Exchange data between processors
+        // idea: substitute for MPI_Sendrecv
 
         // Columns -------------------------
 
         //  Send data to the left
         if (neighbors[0] != -1)
         {
-            //MPI_Send(&grid[1][1], ny, MPI_DOUBLE, neighbors[0], id, MPI_COMM_WORLD);
             MPI_Send(&grid[get(1,1)], 1, columnType, neighbors[0], id, MPI_COMM_WORLD);
         }
         // Receive data from the right
         if (neighbors[2] != -1)
         {
-            //MPI_Recv(&grid[nx + 1][1], ny, MPI_DOUBLE, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Recv(&grid[get(1,nx + 1)], 1, columnType, neighbors[2], neighbors[2], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
         // Send data to the right
         if (neighbors[2] != -1)
         {
-            //MPI_Send(&grid[nx][1], ny, MPI_DOUBLE, neighbors[2], id, MPI_COMM_WORLD);
             MPI_Send(&grid[get(1,nx)], 1, columnType, neighbors[2], id, MPI_COMM_WORLD);
         }
         // Receive data from the left
         if (neighbors[0] != -1)
         {
-            //MPI_Recv(&grid[0][1], ny, MPI_DOUBLE, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Recv(&grid[get(1,0)], 1, columnType, neighbors[0], neighbors[0], MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
@@ -328,7 +371,6 @@ void Heat::solve()
         // Apply boundary conditions
         //applyBoundaryConditions(10.0, x, y);
 
-
         // Compute new temperature values
         
         for (int i = 1; i < nx + 2; ++i)
@@ -342,6 +384,7 @@ void Heat::solve()
         }
 
         //check for convergence
+        // TODO: Implement MPI_Allreduce
         if (maxChange < threshold)
         {
             cout << "Converged in " << step << " steps." << endl;
@@ -351,13 +394,14 @@ void Heat::solve()
         // Swap grids
         grid.swap(newGrid);
 
-        cout << "Step: "<< step << endl;
+        // cout << "Step: "<< step << endl;
+        writeTXT(step, x, y);
     }
 
     MPI_Type_free(&columnType);
 
-    if (id ==0){
-        writeVTK("heat_diffusion.vtk");
-    }
+    // if (id == 0){
+    //     writeVTK("heat_diffusion.vtk");
+    // }
 
 }

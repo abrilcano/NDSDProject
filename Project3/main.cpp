@@ -14,13 +14,9 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
     MPI_Comm_size(MPI_COMM_WORLD, &p);
 
-    // Create an instance of the Heat class
-    // alpha, dt, dx, L, threshold, maxSteps
-    Heat heat(0.01, 0.001, 0.01, 1.0, 10e-6, 40000, p, id);
-    
+    // Create an instance of the Heat class with parametrs alpha, dt, dx, L, threshold, maxSteps
+    Heat heat(0.01, 0.001, 0.1, 0.8, 10e-6, 400000, p, id);
     heat.solve();
-
-    //std::cout<<"MPI FINALIZE"<<std::endl;
 
     MPI_Finalize();
 

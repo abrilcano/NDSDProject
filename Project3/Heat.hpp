@@ -29,7 +29,7 @@ public:
   void initialCondition(double cornerTemp, int x, int y);
   void printGrid();
   int get(int i, int j);
-  void output(int timeStep);
+  void writeTXT(int timeStep, int x, int y);
   void writeVTK(const std::string &filename);
   void applyBoundaryConditions(double cornerTemp, int x, int y);
   void solve();
