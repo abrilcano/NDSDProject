@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &p);
 
     // Create an instance of the Heat class with parametrs alpha, dt, dx, L, threshold, maxSteps
-    Heat heat(0.01, 0.001, 0.1, 0.8, 10e-6, 400000, p, id);
+    Heat heat(0.01, 0.001, 0.1, 1.6, 10e-6, 100, p, id);
     heat.solve();
 
     MPI_Finalize();

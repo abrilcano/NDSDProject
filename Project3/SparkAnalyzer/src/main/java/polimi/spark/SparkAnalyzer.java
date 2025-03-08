@@ -3,6 +3,7 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
 public class SparkAnalyzer {
+
     public static void main(String[] args) {
         final String master = "local[*]";
 

@@ -5,7 +5,6 @@
   <groupId>SparkAnalyzer</groupId>
   <artifactId>SparkAnalyzer</artifactId>
 
-
   <name>SparkAnalyzer</name>
   <packaging>jar</packaging>
   <version>1.0</version>
