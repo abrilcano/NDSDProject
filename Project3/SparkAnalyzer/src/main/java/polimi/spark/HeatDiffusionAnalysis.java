@@ -30,7 +30,7 @@ public class HeatDiffusionAnalysis {
         Dataset<Row> df = spark.read()
                 .option("header", true) // First line is the header
                 .option("inferSchema", true) // Infer data types
-                .csv(filePath + "heat_diffusion*.txt");
+                .csv(filePath + "heat_diffusion*.csv");
         
         df = df.withColumn("time_step", monotonically_increasing_id());
 
@@ -76,7 +76,7 @@ public class HeatDiffusionAnalysis {
         // Define a window specification
         WindowSpec windowSpec = Window.partitionBy("x", "y")
                 .orderBy("time_step")
-                .rowsBetween(-100, 0); // Window size of 100 time steps
+                .rowsBetween(-99, 0); // Window size of 100 time steps
 
         // Compute the temperature difference over the window
         Dataset<Row> result = df.withColumn("temperature_diff",
@@ -95,7 +95,7 @@ public class HeatDiffusionAnalysis {
         // Define a window specification
         WindowSpec windowSpec = Window.partitionBy("x", "y")
                 .orderBy("time_step")
-                .rowsBetween(-100, 0); // Window size of 100 time steps
+                .rowsBetween(-99, 0); // Window size of 100 time steps
 
         // Compute the temperature difference over the window
         Dataset<Row> windowedDiff = df.withColumn("temperature_diff",

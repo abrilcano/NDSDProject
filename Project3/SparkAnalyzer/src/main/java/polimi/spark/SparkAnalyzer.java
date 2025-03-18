@@ -6,6 +6,7 @@ public class SparkAnalyzer {
 
     public static void main(String[] args) {
         final String master = "local[*]";
+        final String filePath = "src/main/resources/heat_diffusion_*.csv"; // Now processing CSV files
 
         final SparkSession spark = SparkSession
                 .builder()
@@ -17,6 +18,6 @@ public class SparkAnalyzer {
                 .readStream()
                 .option("header", "true")
                 .option("inferSchema", "true")
-                .csv("src/main/resources/spark-analyzer.csv");
+                .csv(filePath);
     }
 }
