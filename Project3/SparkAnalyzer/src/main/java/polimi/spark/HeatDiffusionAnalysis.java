@@ -102,7 +102,7 @@ public class HeatDiffusionAnalysis {
                 col("temperature").minus(lag("temperature", 100).over(windowSpec)))
                 .filter(col("temperature_diff").isNotNull()); // Filter out null values
 
-        // Compute the maximum time difference for each point
+        // Compute the maximum temperature difference for each point
         Dataset<Row> result = windowedDiff.groupBy("x", "y")
                 .agg(max("temperature_diff").as("max_temperature_diff"));
 
