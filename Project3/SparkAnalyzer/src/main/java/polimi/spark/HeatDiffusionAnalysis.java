@@ -89,7 +89,7 @@ public class HeatDiffusionAnalysis {
     /**
      * Query 3: Compute the maximum time difference across all windows in Query 2.
      */
-    public static void computeMaxTimeDifference(Dataset<Row> df) {
+    public static void computeMaxTemperatureDifference(Dataset<Row> df) {
         System.out.println("Query 3: Maximum Time Difference Across All Windows");
 
         // Define a window specification
