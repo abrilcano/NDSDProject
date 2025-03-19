@@ -36,6 +36,9 @@
 !*/
 !*.*
 
+# maven files
+**/target/
+
 # result files
 *.vtk
 *.txt
