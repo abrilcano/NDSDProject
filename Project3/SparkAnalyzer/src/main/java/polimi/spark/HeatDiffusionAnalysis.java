@@ -15,7 +15,7 @@ public class HeatDiffusionAnalysis {
         // Initialize SparkSession
         final String master = args.length > 0 ? args[0] : "local[*]";
         // Path to the directory containing temperature files
-        String filePath = args.length > 1 ? args[1] : "../output/";
+        String filePath = args.length > 1 ? args[1] : "../outputF/";
         
         final SparkSession spark = SparkSession.builder()
         .master(master)
@@ -43,9 +43,9 @@ public class HeatDiffusionAnalysis {
         System.out.println("Number of rows in the dataset: " + df.count());
 
         // Perform the queries
-        // computeMinMaxAvg(df);
-        // computeWindowedDifference(df);
-        // computeMaxTimeDifference(df);
+        computeMinMaxAvg(df);
+        computeWindowedDifference(df);
+        computeMaxTemperatureDifference(df);
 
         // Stop the SparkSession
         spark.stop();
@@ -64,7 +64,7 @@ public class HeatDiffusionAnalysis {
                         avg("temperature").as("avg_temperature")
                 );
 
-        result.show();
+        result.show(10);
     }
 
     /**
@@ -83,11 +83,11 @@ public class HeatDiffusionAnalysis {
                 col("temperature").minus(lag("temperature", 100).over(windowSpec)))
                 .filter(col("temperature_diff").isNotNull()); // Filter out null values
 
-        result.show();
+        result.show(10);
     }
 
     /**
-     * Query 3: Compute the maximum time difference across all windows in Query 2.
+     * Query 3: Compute the maximum temperature difference across all windows in Query 2.
      */
     public static void computeMaxTemperatureDifference(Dataset<Row> df) {
         System.out.println("Query 3: Maximum Time Difference Across All Windows");
@@ -106,7 +106,7 @@ public class HeatDiffusionAnalysis {
         Dataset<Row> result = windowedDiff.groupBy("x", "y")
                 .agg(max("temperature_diff").as("max_temperature_diff"));
 
-        result.show();
+        result.show(10);
     }
 
 }
