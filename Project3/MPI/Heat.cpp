@@ -130,10 +130,10 @@ void Heat::writeVTK(const std::string &filename)
     std::cout << "VTK file written: " << filename << std::endl;
 }
 
-void Heat::writeTXT(int timeStep, int x, int y)
+void Heat::writeCSV(int timeStep, int x, int y)
 {
 
-    string filename = "../output/heat_diffusion" + to_string(timeStep) + ".txt";
+    string filename = "../output/heat_diffusion" + to_string(timeStep) + ".csv";
 
     if (id == 0)
     {
@@ -395,7 +395,7 @@ void Heat::solve()
         grid.swap(newGrid);
 
         // cout << "Step: "<< step << endl;
-        writeTXT(step, x, y);
+        writeCSV(step, x, y);
     }
 
     MPI_Type_free(&columnType);

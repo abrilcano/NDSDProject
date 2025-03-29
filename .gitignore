@@ -37,7 +37,12 @@
 !*.*
 
 # maven files
-Project3/SparkAnalyzer/target/
+*.jar
+*.war
+*.ear
+*.class
+*.lst
+
 
 # result files
 *.vtk

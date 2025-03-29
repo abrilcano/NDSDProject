@@ -32,7 +32,8 @@ public class HeatDiffusionAnalysis {
                 .option("inferSchema", true) // Infer data types
                 .csv(filePath + "heat_diffusion*.csv");
         
-        df = df.withColumn("time_step", monotonically_increasing_id());
+        // df = df.withColumn("time_step", monotonically_increasing_id());
+        df = df.withColumn("time_step", regexp_extract(input_file_name(), "heat_diffusion(\\d+).csv", 1).cast("int"));
 
         // Show the schema and sample data
         System.out.println("Schema of the temperature data:");
@@ -62,7 +63,8 @@ public class HeatDiffusionAnalysis {
                         min("temperature").as("min_temperature"),
                         max("temperature").as("max_temperature"),
                         avg("temperature").as("avg_temperature")
-                );
+                )
+                .orderBy("x", "y"); // Order by x and y coordinates
 
         result.show(10);
     }
@@ -76,14 +78,17 @@ public class HeatDiffusionAnalysis {
         // Define a window specification
         WindowSpec windowSpec = Window.partitionBy("x", "y")
                 .orderBy("time_step")
-                .rowsBetween(-99, 0); // Window size of 100 time steps
+                .rowsBetween(0,100); 
 
-        // Compute the temperature difference over the window
-        Dataset<Row> result = df.withColumn("temperature_diff",
-                col("temperature").minus(lag("temperature", 100).over(windowSpec)))
-                .filter(col("temperature_diff").isNotNull()); // Filter out null values
+        df = df.withColumn("start_time", first("time_step").over(windowSpec))
+                .withColumn("end_time", last("time_step").over(windowSpec))
+                .withColumn("temp_start", first("temperature").over(windowSpec))
+                .withColumn("temp_end", last("temperature").over(windowSpec))
+                .withColumn("temperature_diff", col("temp_end").minus(col("temp_start")))
+                .filter(col("time_step").mod(10).equalTo(0))
+                .orderBy("x", "y"); // Filter for every 10 time steps
 
-        result.show(10);
+        df.show(10);
     }
 
     /**
@@ -92,21 +97,23 @@ public class HeatDiffusionAnalysis {
     public static void computeMaxTemperatureDifference(Dataset<Row> df) {
         System.out.println("Query 3: Maximum Time Difference Across All Windows");
 
-        // Define a window specification
         WindowSpec windowSpec = Window.partitionBy("x", "y")
                 .orderBy("time_step")
-                .rowsBetween(-99, 0); // Window size of 100 time steps
+                .rowsBetween(0,100); 
 
-        // Compute the temperature difference over the window
-        Dataset<Row> windowedDiff = df.withColumn("temperature_diff",
-                col("temperature").minus(lag("temperature", 100).over(windowSpec)))
-                .filter(col("temperature_diff").isNotNull()); // Filter out null values
+        df = df.withColumn("start_time", first("time_step").over(windowSpec))
+                .withColumn("end_time", last("time_step").over(windowSpec))
+                .withColumn("temp_start", first("temperature").over(windowSpec))
+                .withColumn("temp_end", last("temperature").over(windowSpec))
+                .withColumn("temperature_diff", col("temp_end").minus(col("temp_start")))
+                .filter(col("time_step").mod(10).equalTo(0))
+                .orderBy("x", "y"); // Filter for every 10 time steps
 
-        // Compute the maximum temperature difference for each point
-        Dataset<Row> result = windowedDiff.groupBy("x", "y")
-                .agg(max("temperature_diff").as("max_temperature_diff"));
+        df = df.groupBy("x", "y")
+                .agg(max("temperature_diff").as("max_temperature_diff"))
+                .orderBy("x", "y"); // Order by x and y coordinates
 
-        result.show(10);
+        df.show(10);
     }
 
 }
