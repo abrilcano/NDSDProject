@@ -37,6 +37,8 @@
 !*.*
 
 # maven files
+target/
+**/target/
 *.jar
 *.war
 *.ear

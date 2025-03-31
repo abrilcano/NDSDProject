@@ -53,7 +53,7 @@ public class SensorDataProducer {
     private static String generateSensorReading(String sensorType) {
         return switch (sensorType) {
             case "temperature" -> String.format("%.1f", 15 + random.nextDouble() * 10);
-            case "humidity" -> String.format("%d%", 30 + random.nextInt(50));
+            case "humidity" -> String.format("%d", 30 + random.nextInt(50));
             case "wind" -> String.format("%d ", 5 + random.nextInt(20));
             case "airQuality" -> String.format("%d ", 10 + random.nextInt(200));
             default -> "unknown";
