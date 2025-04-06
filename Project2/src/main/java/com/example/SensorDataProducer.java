@@ -1,5 +1,6 @@
 package com.example;
 
+import java.util.Locale;
 import java.util.Properties;
 import java.util.Random;
 import org.apache.kafka.clients.producer.*;
@@ -36,11 +37,12 @@ public class SensorDataProducer {
                     String value = generateSensorReading(sensor);
                     ProducerRecord<String, String> record = new ProducerRecord<>(topic, sensor, value);
                     producer.send(record);
+                    Thread.sleep(1500);
                     System.out.printf("Produced -> Topic: %s, Key: %s, Value: %s\n", topic, sensor, value);
                 }
                 
                 producer.commitTransaction();
-                Thread.sleep(10000); // Simulate sensor reading every second
+                Thread.sleep(15000); // Simulate sensor reading every second
             }
         } catch (Exception e) {
             producer.abortTransaction();
@@ -52,10 +54,10 @@ public class SensorDataProducer {
     
     private static String generateSensorReading(String sensorType) {
         return switch (sensorType) {
-            case "temperature" -> String.format("%.1f", 15 + random.nextDouble() * 10);
+            case "temperature" -> String.format(Locale.US, "%.1f", 15 + random.nextDouble() * 10);
             case "humidity" -> String.format("%d", 30 + random.nextInt(50));
-            case "wind" -> String.format("%d ", 5 + random.nextInt(20));
-            case "airQuality" -> String.format("%d ", 10 + random.nextInt(200));
+            case "wind" -> String.format("%d", 5 + random.nextInt(20));
+            case "airQuality" -> String.format("%d", 10 + random.nextInt(200));
             default -> "unknown";
         };
     }
