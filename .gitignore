@@ -16,9 +16,8 @@
 *.dylib
 *.dll
 
-# Fortran module files
-*.mod
-*.smod
+# VS code files
+.vscode/*
 
 # Compiled Static libraries
 *.lai

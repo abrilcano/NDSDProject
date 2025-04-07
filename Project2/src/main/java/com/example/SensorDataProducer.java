@@ -37,12 +37,12 @@ public class SensorDataProducer {
                     String value = generateSensorReading(sensor);
                     ProducerRecord<String, String> record = new ProducerRecord<>(topic, sensor, value);
                     producer.send(record);
-                    Thread.sleep(1500);
+                    Thread.sleep(2500);
                     System.out.printf("Produced -> Topic: %s, Key: %s, Value: %s\n", topic, sensor, value);
                 }
                 
                 producer.commitTransaction();
-                Thread.sleep(15000); // Simulate sensor reading every second
+                Thread.sleep(25000); // Simulate sensor reading every second
             }
         } catch (Exception e) {
             producer.abortTransaction();

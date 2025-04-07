@@ -1,7 +1,7 @@
 package com.example;
 
 import akka.actor.*;
-import akka.stream.*;
+import akka.pattern.Patterns;
 import akka.stream.javadsl.*;
 
 import org.apache.kafka.clients.consumer.*;
@@ -15,12 +15,10 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import java.util.Properties;
 import java.util.Collections;
 import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class TempConsumer {
     // Consumer
@@ -31,14 +29,13 @@ public class TempConsumer {
 
     // Producer
     private static final String TRANSACTIONAL_ID = "sensor-consumer-transactional";
-    private static final String[] SENSOR_TYPES = {"temperature", "humidity", "wind", "airQuality"};
+    private static final String[] SENSOR_TYPES = {"humidity", "wind", "airQuality"};
 
 
     // Actor System
     private static final int NUM_THREADS = 8;
-
-
-    private static volatile boolean running = true; //shutdown flag
+    // Shutdown flag
+    private static volatile boolean running = true; 
 
     public static void main(String[] args) {
         
@@ -71,7 +68,11 @@ public class TempConsumer {
         producer.initTransactions();
 
         // Creating an Actor for processing messages
-        final ActorRef aggActor = system.actorOf(TempActor.props(8, 4, producer), "aggActor");
+        final ActorRef aggActor = createActor(system, producer);
+        if (aggActor == null) {
+            System.err.println("Failed to create actor. Exiting.");
+            System.exit(1);
+        }
 
         // Executor Service to submit tasks
         final ExecutorService executorService = Executors.newFixedThreadPool(NUM_THREADS);
@@ -89,7 +90,7 @@ public class TempConsumer {
             while (running) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
                 for (ConsumerRecord<String, String> record : records) {
-                    System.out.printf("Received message: key=%s, value=%s, offset=%d%n",
+                    System.out.printf("Consuer received message: key=%s, value=%s, offset=%d%n",
                             record.key(), record.value(), record.offset());
 
                     try {
@@ -98,7 +99,6 @@ public class TempConsumer {
 
                         // Send the temperature value to the aggregation actor asynchronously
                         executorService.submit(() -> aggActor.tell(dataMsg, ActorRef.noSender()));
-                        System.out.println("DataMessage sent to actor"); 
 
                         // Randomized forwarding to other topics with a probability of 0.1
                         if (Math.random() < 0.1) {
@@ -138,4 +138,26 @@ public class TempConsumer {
         
     }
     
+
+    private static ActorRef createActor(ActorSystem system, KafkaProducer<String, String> producer) {
+        ActorRef supervisor = system.actorOf(SensorActorSupervisor.props(producer), "sensor-supervisor");
+        
+        try {
+            scala.concurrent.duration.Duration timeout = scala.concurrent.duration.Duration.create(5, SECONDS);
+            scala.concurrent.Future<Object> futureActor = Patterns.ask(
+                supervisor, 
+                new SensorActorSupervisor.CreateActorMessage("temperature", "tempA1", 8, 4),
+                5000
+            );   
+            
+            ActorRef actor = (ActorRef) futureActor.result(timeout, null);
+            System.out.println("Actor created successfully: " + actor.path());
+            return actor;
+        } catch (Exception e) {
+            System.err.println("Failed to get actor reference: " + e.getMessage());
+            return null;
+        }
+    }
 }
+
+
