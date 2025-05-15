@@ -1,4 +1,6 @@
-package com.example;
+package com.polimi.actors;
+import com.polimi.utils.DataMessage;
+import com.polimi.utils.WindowSnapshot;
 
 import akka.persistence.AbstractPersistentActor;
 import akka.persistence.SnapshotOffer;
