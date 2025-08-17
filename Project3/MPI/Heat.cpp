@@ -9,7 +9,7 @@
 
 using namespace std;
 
-int::Heat::get(int i, int j)
+int Heat::get(int i, int j)
 {
     return i * (nx + 2) + j;
 }
@@ -18,7 +18,8 @@ void Heat::initializeGhostValues()
 {
 
     // cout << "initializeGhostValues" << endl;
-    int val = id-9; 
+    // int val = id-9; 
+    int val = 0;
     for (int i = 0; i < nx + 2; ++i)
     {
         grid[get(i,0)] = val;
@@ -38,10 +39,12 @@ void Heat::initialCondition(double temp, int x, int y)
     {
         for (int j = 1; j < ny + 1; ++j)
         {
-            grid[get(i,j)] = id;
+            // grid[get(i,j)] = id;
+            grid[get(i,j)] = 0.0; // Initialize to zero
         }
     }
 
+    // Set the corner temperatures 
     if (x == 0 && y == 0)
     {
         grid[get(1,1)] = temp;
@@ -114,7 +117,7 @@ void Heat::writeVTK(const std::string &filename)
     file << "ORIGIN 0 0 0\n";  // Adjust if needed
     file << "SPACING " << dx << " " << dx << " 1\n"; // Uniform grid spacing
     file << "POINT_DATA " << nx * ny << "\n";
-    file << "SCALARS temperature float 1\n";
+    file << "SCALARS temperature double 1\n";
     file << "LOOKUP_TABLE default\n";
 
     for (int j = 1; j < ny + 1; ++j)
@@ -130,10 +133,136 @@ void Heat::writeVTK(const std::string &filename)
     std::cout << "VTK file written: " << filename << std::endl;
 }
 
+void Heat::writeVTKParallel(int timeStep, int x, int y)
+{
+    std::string filename = "../outputVTK/heat_diffusion" + to_string(timeStep) + ".vtk";
+
+    if (id == 0)
+    {
+        std::remove(filename.c_str());
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    MPI_File file;
+    MPI_File_open(MPI_COMM_WORLD, filename.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
+
+    MPI_Offset offsetH = 0;
+
+    // Write VTK header (only processor 0)
+    if (id == 0)
+    {
+        stringstream header;
+        header << "# vtk DataFile Version 3.0\n";
+        header << "2D Heat Diffusion Output\n";
+        header << "ASCII\n";
+        header << "DATASET STRUCTURED_POINTS\n";
+        header << "DIMENSIONS " << (px * nx) << " " << (py * ny) << " 1\n";
+        header << "ORIGIN 0 0 0\n";
+        header << "SPACING " << dx << " " << dx << " 1\n";
+        header << "POINT_DATA " << (px * nx * py * ny) << "\n";
+        header << "SCALARS temperature double 1\n";
+        header << "LOOKUP_TABLE default\n";
+
+        MPI_File_write_at(file, offsetH, header.str().c_str(), header.str().size(), MPI_CHAR, MPI_STATUS_IGNORE);
+        offsetH = header.str().size();
+    }
+
+    // Broadcast header size to all processors
+    MPI_Bcast(&offsetH, 1, MPI_OFFSET, 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // Collect all data from all processors to processor 0
+    int total_points = px * nx * py * ny;
+    vector<double> global_data;
+    
+    if (id == 0) {
+        global_data.resize(total_points);
+    }
+
+    // Each processor sends its data to processor 0
+    vector<double> local_data(nx * ny);
+    int idx = 0;
+    for (int j = 1; j < ny + 1; ++j) {
+        for (int i = 1; i < nx + 1; ++i) {
+            local_data[idx++] = grid[get(i, j)];
+        }
+    }
+
+    // Gather all local data to processor 0
+    vector<int> recvcounts(p);
+    vector<int> displs(p);
+    
+    if (id == 0) {
+        for (int proc = 0; proc < p; ++proc) {
+            int proc_x = proc % px;
+            int proc_y = proc / px;
+            
+            // Handle remainder grid points
+            int proc_nx = nx;
+            int proc_ny = ny;
+            if (proc_x == px - 1 && rx != 0) proc_nx += rx;
+            if (proc_y == py - 1 && ry != 0) proc_ny += ry;
+            
+            recvcounts[proc] = proc_nx * proc_ny;
+            if (proc == 0) {
+                displs[proc] = 0;
+            } else {
+                displs[proc] = displs[proc-1] + recvcounts[proc-1];
+            }
+        }
+    }
+
+    MPI_Gatherv(local_data.data(), nx * ny, MPI_DOUBLE,
+                global_data.data(), recvcounts.data(), displs.data(), MPI_DOUBLE,
+                0, MPI_COMM_WORLD);
+
+    // Write data (only processor 0)
+    if (id == 0) {
+        stringstream data_stream;
+        
+        // Write data in VTK order (j varies fastest, then i)
+        for (int global_j = 0; global_j < py * ny; ++global_j) {
+            for (int global_i = 0; global_i < px * nx; ++global_i) {
+                // Determine which processor owns this point
+                int proc_x = global_i / nx;
+                int proc_y = global_j / ny;
+                int proc_id = proc_y * px + proc_x;
+                
+                // Local indices within the processor
+                int local_i = global_i % nx;
+                int local_j = global_j % ny;
+                
+                // Find the data in the gathered array
+                int data_idx = displs[proc_id] + local_j * nx + local_i;
+                
+                data_stream << fixed << setprecision(6) << global_data[data_idx];
+                if (global_i == px * nx - 1) {
+                    data_stream << "\n";
+                } else {
+                    data_stream << " ";
+                }
+            }
+        }
+        
+        string data_str = data_stream.str();
+        MPI_File_write_at(file, offsetH, data_str.c_str(), data_str.size(), MPI_CHAR, MPI_STATUS_IGNORE);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_File_close(&file);
+
+    if (id == 0)
+    {
+        std::cout << "Parallel VTK file written: " << filename << std::endl;
+    }
+}
+
 void Heat::writeCSV(int timeStep, int x, int y)
 {
 
-    string filename = "../output/heat_diffusion" + to_string(timeStep) + ".csv";
+    std::string filename = "/../output/heat_diffusion" + to_string(timeStep) + ".csv";
+    // std::string filename = "/mnt/c/Users/USUARIO/Documents/HPCPolimi/Year2/S1/NDSD/Project/Project3/output/heat_diffusion" + to_string(timeStep) + ".csv";
 
     if (id == 0)
     {
@@ -148,11 +277,11 @@ void Heat::writeCSV(int timeStep, int x, int y)
     MPI_Offset offsetD = 0;
     MPI_Offset offsetH = 0;
 
-    // writng in a csv file (x,y,value)
+    // writing in a csv file (x,y,temperature)
 
     // Write header
     stringstream ss;
-    ss << "x,y,value\n";
+    ss << "x,y,temperature\n";
     if (id == 0)
     {
         MPI_File_write_at(file, offsetH, ss.str().c_str(), ss.str().size(), MPI_CHAR, MPI_STATUS_IGNORE);
@@ -166,7 +295,7 @@ void Heat::writeCSV(int timeStep, int x, int y)
     {
         for (int j = 1; j < ny + 1; ++j)
         {
-            int precision = 15;
+            int precision = 9;
             int globalX = x * nx + (i - 1);
             int globalY = y * ny + (j - 1);
 
@@ -183,12 +312,6 @@ void Heat::writeCSV(int timeStep, int x, int y)
             // local lines already written
             offsetD += (j - 1) * (nx * (precision + 1)) + (i - 1) * (precision + 1);
 
-            // if (id == 0)
-            // {
-            //     cout << "Processor " << id << " writing: " << line << " at offset: " << offsetD << endl;
-            //     MPI_File_write_at(file, offsetD, line.c_str(), line.size(), MPI_CHAR, MPI_STATUS_IGNORE);
-            // }
-            // cout << "Processor " << id << " writing: " << line << " at offset: " << offsetD << endl;
             MPI_File_write_at(file, offsetD, line.c_str(), line.size(), MPI_CHAR, MPI_STATUS_IGNORE);
 
         }
@@ -304,8 +427,6 @@ void Heat::solve()
 
     for (int step = 0; step < maxSteps; ++step)
     {
-        double maxChange = 0.0;
-
         // Exchange data between processors
         // idea: substitute for MPI_Sendrecv
 
@@ -373,6 +494,7 @@ void Heat::solve()
 
         // Compute new temperature values
         
+        double maxChange = 0.0;
         for (int i = 1; i < nx + 2; ++i)
         {
             for (int j = 1; j < ny + 2; ++j)
@@ -383,19 +505,27 @@ void Heat::solve()
             }
         }
 
-        //check for convergence
-        // TODO: Implement MPI_Allreduce
-        if (maxChange < threshold)
+        // Check for convergence
+
+        double globalMaxChange;
+        MPI_Allreduce(&maxChange, &globalMaxChange, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+        if (globalMaxChange < threshold)
         {
-            cout << "Converged in " << step << " steps." << endl;
+            cout << "Convergence achieved in " << step << " steps." << endl;
+            writeCSV(step, x, y);
             break;
         }
 
+        if (id == 0)
+            // cout << "Step: " << step << ", Max Change: " << globalMaxChange << endl;
+            cout << "Step: " << step << endl;
+
+        writeCSV(step, x, y);
+
+        // writeVTKParallel(step, x, y);
+        
         // Swap grids
         grid.swap(newGrid);
-
-        // cout << "Step: "<< step << endl;
-        writeCSV(step, x, y);
     }
 
     MPI_Type_free(&columnType);

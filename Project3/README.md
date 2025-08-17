@@ -3,9 +3,12 @@
 ### Compilation
 
 mpicxx main.cpp heat.cpp -o heat
+mvn clean package
+
+### Execution
 mpirun -np n ./heat
 
-### Bibliograhy
+### Bibliography
 
 https://people.math.sc.edu/burkardt/cpp_src/heat_mpi/heat_mpi.html
 
@@ -20,3 +23,7 @@ https://www.paulnorvig.com/guides/using-mpi-with-c.html
 https://rantahar.github.io/introduction-to-mpi/setup.html
 
 https://people.math.sc.edu/Burkardt/cpp_src/mpi/mpi.html
+
+### TODO 
+- [ ] Implement MPI_reduce to check convergence in all processes 
+

@@ -17,7 +17,8 @@
 *.dll
 
 # VS code files
-.vscode/*
+.vscode/
+*.vscode/*
 
 # Compiled Static libraries
 *.lai
@@ -48,3 +49,4 @@ target/
 # result files
 *.vtk
 *.txt
+*.csv

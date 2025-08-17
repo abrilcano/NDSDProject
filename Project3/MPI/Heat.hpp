@@ -31,6 +31,7 @@ public:
   int get(int i, int j);
   void writeCSV(int timeStep, int x, int y);
   void writeVTK(const std::string &filename);
+  void writeVTKParallel(int timeStep, int x, int y);
   void applyBoundaryConditions(double cornerTemp, int x, int y);
   void solve();
 
