@@ -10,9 +10,9 @@ import java.util.concurrent.TimeUnit;
 import akka.japi.pf.DeciderBuilder;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.common.metrics.Sensor;
 
 import com.polimi.utils.DataMessage;
+import com.polimi.utils.FlushCommand;
 
 public class SensorActorSupervisor extends AbstractActor {
 
@@ -75,6 +75,19 @@ public class SensorActorSupervisor extends AbstractActor {
                     // Forward the message to the actor
                     actor.forward(msg, getContext());
                 })
+                // Handle flush commands (resets)
+                .match(FlushCommand.class, msg -> {
+                    // Get the existing actor for this sensor type
+                    ActorRef actor = actorCache.get(msg.getSensorType());
+                    if (actor != null) {
+                        // Convert FlushCommand to FlushWindow message and forward
+                        actor.tell(createFlushWindow(msg.getReason()), getSelf());
+                        System.out.printf("Flush command forwarded to %s actor: %s\n", 
+                                        msg.getSensorType(), msg.getReason());
+                    } else {
+                        System.out.printf("No actor found for sensor type: %s\n", msg.getSensorType());
+                    }
+                })
                 .build();
     }
 
@@ -102,11 +115,19 @@ public class SensorActorSupervisor extends AbstractActor {
                         AirActor.props(config.getWindowSize(), config.getWindowSlide(), producer),
                         "air-actor-" + actorId);
             default:
-                throw new IllegalArgumentException("Unknown sensor type: " + sensorType);
+                        throw new IllegalArgumentException("Unknown sensor type: " + sensorType);
         }
     }
 
-    // Message to create an actor
+    /**
+     * Creates a FlushWindow message with the given reason
+     * This needs to match the FlushWindow class of the target sensor actor
+     */
+    private Object createFlushWindow(String reason) {
+        // Since all sensor actors have the same FlushWindow structure,
+        // we can use TempActor's FlushWindow as a representative
+        return new TempActor.FlushWindow(reason);
+    }    // Message to create an actor
     public static class CreateActorMessage {
 
         private final String sensorType;

@@ -40,7 +40,19 @@ public class HumActor extends AbstractPersistentActor {
     }
 
     public static class FlushWindow {
-        // This class can be empty, it's just a marker for the message type
+        private final String reason;
+        
+        public FlushWindow() {
+            this("Manual flush");
+        }
+        
+        public FlushWindow(String reason) {
+            this.reason = reason;
+        }
+        
+        public String getReason() {
+            return reason;
+        }
     }
 
     public HumActor(int windowSize,int windowSlide, KafkaProducer<String, String> producer) {

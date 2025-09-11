@@ -10,8 +10,8 @@ import java.time.Duration;
 
 public class OutputConsumer {
     // Consumer
-    private static final String BOOTSTRAP_SERVERS = "localhost:9092";
-    private static final String TOPIC = "output-data";
+    private static final String BOOTSTRAP_SERVERS = "172.20.10.1:9092";
+    private static final String TOPIC = "output";
     private static final String GROUP_ID = "output-consumer-group";
     private static final String OFFSET_RESET_STRATEGY = "earliest"; // or "latest"
 

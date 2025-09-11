@@ -40,7 +40,19 @@ public class TempActor extends AbstractPersistentActor {
     }
 
     public static class FlushWindow {
-        // This class can be empty, it's just a marker for the message type
+        private final String reason;
+        
+        public FlushWindow() {
+            this("Manual flush");
+        }
+        
+        public FlushWindow(String reason) {
+            this.reason = reason;
+        }
+        
+        public String getReason() {
+            return reason;
+        }
     }
 
     public TempActor(int windowSize,int windowSlide, KafkaProducer<String, String> producer) {
@@ -85,22 +97,18 @@ public class TempActor extends AbstractPersistentActor {
                 processData(msg);
             })
             .match(FlushWindow.class, msg -> {
-                flushWindow();
+                flushWindow(msg);
             })
-            // .match(SaveSnapshotSuccess.class, msg -> {
-            //     System.out.println("Snapshot saved successfully: " + msg.metadata().sequenceNr());
-            // })
-            // .match(SaveSnapshotFailure.class, msg -> {
-            //     System.err.println("Failed to save snapshot: " + msg.cause().getMessage());
-            // })
             .build();
     }
 
-    private void flushWindow(){
+    private void flushWindow(FlushWindow flushMsg){
+        System.out.printf("Temperature actor flushing window. Reason: %s\n", flushMsg.getReason());
         window.clear();
-        persist(new FlushWindow(), event -> {
+        persist(new FlushWindow(flushMsg.getReason()), event -> {
             window.clear();
             saveSnapshot(new ArrayList<>(window)); // Save the current state as a snapshot
+            System.out.printf("Temperature window flush completed. Reason: %s\n", event.getReason());
         });
         // unstashAll();
     }

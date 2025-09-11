@@ -16,7 +16,7 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 
 public class SensorDataProducer {
-    private static final String BOOTSTRAP_SERVERS = "localhost:9092";
+    private static final String BOOTSTRAP_SERVERS = "100.90.45.66:9092";
     private static final String TRANSACTIONAL_ID = "sensor-producer-transactional";
     private static final String[] SENSOR_TYPES = {"temperature", "humidity", "wind", "airQuality"};
 
