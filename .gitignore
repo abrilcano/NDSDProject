@@ -17,8 +17,8 @@
 *.dll
 
 # VS code files
-.vscode/
-*.vscode/*
+./vscode/
+./.vscode/*
 
 # Compiled Static libraries
 *.lai

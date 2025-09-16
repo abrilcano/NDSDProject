@@ -7,21 +7,21 @@
 5.  **Kafka Topic (Final Output Stage)** → Stores final output.
 6.  **Kafka Consumer** → Consumes results for external systems.
 
-### Questions
+### **Questions**
 
 1.  What determines the aggregation?
 2.  The flushing messages are random?
 3.  When an operator forwards the value with another key. What does it determines the forwrding and it still computes the aggregation and then forwards the value ?
 
-### TODO
+### **TODO**
 
-[X] Make Actor state fault tolerant
-[X] Make actor supervisor
-[ ] Fault injection
-[ ] Customize windowing
-[X] Use Kafka partitioning
-[X] Use akka clustering
-[ ] Test distributed
+\[X\] Make Actor state fault tolerant  
+\[X\] Make actor supervisor  
+\[ \] Fault injection  
+\[X\] Customize windowing  
+\[X\] Use Kafka partitioning  
+\[X\] Use akka clustering  
+\[ \] Test distributed
 
 ### Run locally
 
@@ -34,5 +34,4 @@ mvn exec:java -Pproducer
 mvn exec:java -Pconsumer
 # Start output
 mvn exec:java -Poutput
-
 ```
