@@ -136,65 +136,65 @@ static const char *broker_ip = MQTT_CLIENT_BROKER_IP_ADDR;
  * A timeout used when waiting for something to happen (e.g. to connect or to
  * disconnect)
  */
-#define STATE_MACHINE_PERIODIC     (CLOCK_SECOND >> 1)
+#define STATE_MACHINE_PERIODIC (CLOCK_SECOND >> 1)
 /*---------------------------------------------------------------------------*/
 /* Provide visible feedback via LEDS during various states */
 /* When connecting to broker */
-#define CONNECTING_LED_DURATION    (CLOCK_SECOND >> 2)
+#define CONNECTING_LED_DURATION (CLOCK_SECOND >> 2)
 
 /* Each time we try to publish */
-#define PUBLISH_LED_ON_DURATION    (CLOCK_SECOND)
+#define PUBLISH_LED_ON_DURATION (CLOCK_SECOND)
 /*---------------------------------------------------------------------------*/
 /* Connections and reconnections */
-#define RETRY_FOREVER              0xFF
-#define RECONNECT_INTERVAL         (CLOCK_SECOND * 2)
+#define RETRY_FOREVER 0xFF
+#define RECONNECT_INTERVAL (CLOCK_SECOND * 2)
 
 /*---------------------------------------------------------------------------*/
 /*
  * Number of times to try reconnecting to the broker.
  * Can be a limited number (e.g. 3, 10 etc) or can be set to RETRY_FOREVER
  */
-#define RECONNECT_ATTEMPTS         RETRY_FOREVER
-#define CONNECTION_STABLE_TIME     (CLOCK_SECOND * 5)
+#define RECONNECT_ATTEMPTS RETRY_FOREVER
+#define CONNECTION_STABLE_TIME (CLOCK_SECOND * 5)
 static struct timer connection_life;
 static uint8_t connect_attempt;
 /*---------------------------------------------------------------------------*/
 /* Various states */
 static uint8_t state;
-#define STATE_INIT            0
-#define STATE_REGISTERED      1
-#define STATE_CONNECTING      2
-#define STATE_CONNECTED       3
-#define STATE_PUBLISHING      4
-#define STATE_DISCONNECTED    5
-#define STATE_NEWCONFIG       6
+#define STATE_INIT 0
+#define STATE_REGISTERED 1
+#define STATE_CONNECTING 2
+#define STATE_CONNECTED 3
+#define STATE_PUBLISHING 4
+#define STATE_DISCONNECTED 5
+#define STATE_NEWCONFIG 6
 #define STATE_CONFIG_ERROR 0xFE
-#define STATE_ERROR        0xFF
+#define STATE_ERROR 0xFF
 /*---------------------------------------------------------------------------*/
-#define CONFIG_ORG_ID_LEN        32
-#define CONFIG_TYPE_ID_LEN       32
-#define CONFIG_AUTH_TOKEN_LEN    32
+#define CONFIG_ORG_ID_LEN 32
+#define CONFIG_TYPE_ID_LEN 32
+#define CONFIG_AUTH_TOKEN_LEN 32
 #define CONFIG_EVENT_TYPE_ID_LEN 32
-#define CONFIG_CMD_TYPE_LEN       8
-#define CONFIG_IP_ADDR_STR_LEN   64
+#define CONFIG_CMD_TYPE_LEN 8
+#define CONFIG_IP_ADDR_STR_LEN 64
 /*---------------------------------------------------------------------------*/
 /* A timeout used when waiting to connect to a network */
-#define NET_CONNECT_PERIODIC        (CLOCK_SECOND >> 2)
-#define NO_NET_LED_DURATION         (NET_CONNECT_PERIODIC >> 1)
+#define NET_CONNECT_PERIODIC (CLOCK_SECOND >> 2)
+#define NO_NET_LED_DURATION (NET_CONNECT_PERIODIC >> 1)
 /*---------------------------------------------------------------------------*/
 /* Default configuration values */
-#define DEFAULT_TYPE_ID             "mqtt-client"
-#define DEFAULT_EVENT_TYPE_ID       "status"
-#define DEFAULT_SUBSCRIBE_CMD_TYPE  "+"
-#define DEFAULT_BROKER_PORT         1883
-#define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
-#define DEFAULT_KEEP_ALIVE_TIMER    60
-#define DEFAULT_RSSI_MEAS_INTERVAL  (CLOCK_SECOND * 30)
+#define DEFAULT_TYPE_ID "mqtt-client"
+#define DEFAULT_EVENT_TYPE_ID "status"
+#define DEFAULT_SUBSCRIBE_CMD_TYPE "+"
+#define DEFAULT_BROKER_PORT 1883
+#define DEFAULT_PUBLISH_INTERVAL (30 * CLOCK_SECOND)
+#define DEFAULT_KEEP_ALIVE_TIMER 60
+#define DEFAULT_RSSI_MEAS_INTERVAL (CLOCK_SECOND * 30)
 /*---------------------------------------------------------------------------*/
-#define MQTT_CLIENT_SENSOR_NONE     (void *)0xFFFFFFFF
+#define MQTT_CLIENT_SENSOR_NONE (void *)0xFFFFFFFF
 /*---------------------------------------------------------------------------*/
 /* Payload length of ICMPv6 echo requests used to measure RSSI with def rt */
-#define ECHO_REQ_PAYLOAD_LEN   20
+#define ECHO_REQ_PAYLOAD_LEN 20
 /*---------------------------------------------------------------------------*/
 PROCESS_NAME(mqtt_client_process);
 AUTOSTART_PROCESSES(&mqtt_client_process);
@@ -202,7 +202,8 @@ AUTOSTART_PROCESSES(&mqtt_client_process);
 /**
  * \brief Data structure declaration for the MQTT client configuration
  */
-typedef struct mqtt_client_config {
+typedef struct mqtt_client_config
+{
   char org_id[CONFIG_ORG_ID_LEN];
   char type_id[CONFIG_TYPE_ID_LEN];
   char auth_token[CONFIG_AUTH_TOKEN_LEN];
@@ -215,7 +216,7 @@ typedef struct mqtt_client_config {
 } mqtt_client_config_t;
 /*---------------------------------------------------------------------------*/
 /* Maximum TCP segment size for outgoing segments of our socket */
-#define MAX_TCP_SEGMENT_SIZE    32
+#define MAX_TCP_SEGMENT_SIZE 32
 /*---------------------------------------------------------------------------*/
 /*
  * Buffers for Client ID and Topic.
@@ -228,7 +229,6 @@ typedef struct mqtt_client_config {
 #define BUFFER_SIZE 64
 static char client_id[BUFFER_SIZE];
 static char pub_topic[BUFFER_SIZE];
-static char sub_topic[BUFFER_SIZE];
 /*---------------------------------------------------------------------------*/
 /*
  * The main MQTT buffers.
@@ -257,7 +257,7 @@ static mqtt_client_config_t conf;
 extern const mqtt_client_extension_t *mqtt_client_extensions[];
 extern const uint8_t mqtt_client_extension_count;
 #else
-static const mqtt_client_extension_t *mqtt_client_extensions[] = { NULL };
+static const mqtt_client_extension_t *mqtt_client_extensions[] = {NULL};
 static const uint8_t mqtt_client_extension_count = 0;
 #endif
 /*---------------------------------------------------------------------------*/
@@ -279,8 +279,9 @@ PROCESS(mqtt_client_process, "MQTT Client");
 static bool
 have_connectivity(void)
 {
-  if(uip_ds6_get_global(ADDR_PREFERRED) == NULL ||
-     uip_ds6_defrt_choose() == NULL) {
+  if (uip_ds6_get_global(ADDR_PREFERRED) == NULL ||
+      uip_ds6_defrt_choose() == NULL)
+  {
     return false;
   }
   return true;
@@ -292,16 +293,24 @@ ipaddr_sprintf(char *buf, uint8_t buf_len, const uip_ipaddr_t *addr)
   uint16_t a;
   uint8_t len = 0;
   int i, f;
-  for(i = 0, f = 0; i < sizeof(uip_ipaddr_t); i += 2) {
+  for (i = 0, f = 0; i < sizeof(uip_ipaddr_t); i += 2)
+  {
     a = (addr->u8[i] << 8) + addr->u8[i + 1];
-    if(a == 0 && f >= 0) {
-      if(f++ == 0) {
+    if (a == 0 && f >= 0)
+    {
+      if (f++ == 0)
+      {
         len += snprintf(&buf[len], buf_len - len, "::");
       }
-    } else {
-      if(f > 0) {
+    }
+    else
+    {
+      if (f > 0)
+      {
         f = -1;
-      } else if(i > 0) {
+      }
+      else if (i > 0)
+      {
         len += snprintf(&buf[len], buf_len - len, ":");
       }
       len += snprintf(&buf[len], buf_len - len, "%x", a);
@@ -315,7 +324,8 @@ static void
 echo_reply_handler(uip_ipaddr_t *source, uint8_t ttl, uint8_t *data,
                    uint16_t datalen)
 {
-  if(uip_ip6addr_cmp(source, uip_ds6_defrt_choose())) {
+  if (uip_ip6addr_cmp(source, uip_ds6_defrt_choose()))
+  {
     def_rt_rssi = (int)uipbuf_get_attr(UIPBUF_ATTR_RSSI);
   }
 }
@@ -334,21 +344,27 @@ pub_handler(const char *topic, uint16_t topic_len, const uint8_t *chunk,
           topic_len, chunk_len, chunk);
 
   /* If we don't like the length, ignore */
-  if(topic_len != 23 || chunk_len != 1) {
+  if (topic_len != 23 || chunk_len != 1)
+  {
     LOG_ERR("Incorrect topic or chunk len. Ignored\n");
     return;
   }
 
   /* If the format != json, ignore */
-  if(strncmp(&topic[topic_len - 4], "json", 4) != 0) {
+  if (strncmp(&topic[topic_len - 4], "json", 4) != 0)
+  {
     LOG_ERR("Incorrect format\n");
   }
 
-  if(strncmp(&topic[10], "leds", 4) == 0) {
+  if (strncmp(&topic[10], "leds", 4) == 0)
+  {
     LOG_DBG("Received MQTT SUB\n");
-    if(chunk[0] == '1') {
+    if (chunk[0] == '1')
+    {
       leds_on(LEDS_RED);
-    } else if(chunk[0] == '0') {
+    }
+    else if (chunk[0] == '0')
+    {
       leds_off(LEDS_RED);
     }
     return;
@@ -358,29 +374,35 @@ pub_handler(const char *topic, uint16_t topic_len, const uint8_t *chunk,
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 {
-  switch(event) {
-  case MQTT_EVENT_CONNECTED: {
+  switch (event)
+  {
+  case MQTT_EVENT_CONNECTED:
+  {
     LOG_DBG("Application has a MQTT connection\n");
     timer_set(&connection_life, CONNECTION_STABLE_TIME);
     state = STATE_CONNECTED;
     break;
   }
   case MQTT_EVENT_DISCONNECTED:
-  case MQTT_EVENT_CONNECTION_REFUSED_ERROR: {
+  case MQTT_EVENT_CONNECTION_REFUSED_ERROR:
+  {
     LOG_DBG("MQTT Disconnect. Reason %u\n", *((mqtt_event_t *)data));
 
     state = STATE_DISCONNECTED;
     process_poll(&mqtt_client_process);
     break;
   }
-  case MQTT_EVENT_PUBLISH: {
+  case MQTT_EVENT_PUBLISH:
+  {
     msg_ptr = data;
 
     /* Implement first_flag in publish message? */
-    if(msg_ptr->first_chunk) {
+    if (msg_ptr->first_chunk)
+    {
       msg_ptr->first_chunk = 0;
       LOG_DBG("Application received publish for topic '%s'. Payload "
-              "size is %i bytes.\n", msg_ptr->topic, msg_ptr->payload_chunk_length);
+              "size is %i bytes.\n",
+              msg_ptr->topic, msg_ptr->payload_chunk_length);
     }
 
     pub_handler(msg_ptr->topic, strlen(msg_ptr->topic),
@@ -391,34 +413,14 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 #endif
     break;
   }
-  case MQTT_EVENT_SUBACK: {
-#if MQTT_31
-    LOG_DBG("Application is subscribed to topic successfully\n");
-#else
-    struct mqtt_suback_event *suback_event = (struct mqtt_suback_event *)data;
-
-    if(suback_event->success) {
-      LOG_DBG("Application is subscribed to topic successfully\n");
-    } else {
-      LOG_DBG("Application failed to subscribe to topic (ret code %x)\n", suback_event->return_code);
-    }
-#if MQTT_5
-    /* Print any properties received along with the message */
-    mqtt_prop_print_input_props(m);
-#endif
-#endif
-    break;
-  }
-  case MQTT_EVENT_UNSUBACK: {
-    LOG_DBG("Application is unsubscribed to topic successfully\n");
-    break;
-  }
-  case MQTT_EVENT_PUBACK: {
+  case MQTT_EVENT_PUBACK:
+  {
     LOG_DBG("Publishing complete.\n");
     break;
   }
 #if MQTT_5_AUTH_EN
-  case MQTT_EVENT_AUTH: {
+  case MQTT_EVENT_AUTH:
+  {
     LOG_DBG("Continuing auth.\n");
     struct mqtt_prop_auth_event *auth_event = (struct mqtt_prop_auth_event *)data;
     break;
@@ -433,12 +435,13 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 static int
 construct_pub_topic(void)
 {
-  //int len = snprintf(pub_topic, BUFFER_SIZE, "iot-2/evt/%s/fmt/json", conf.event_type_id);
+  // int len = snprintf(pub_topic, BUFFER_SIZE, "iot-2/evt/%s/fmt/json", conf.event_type_id);
 
   int len = snprintf(pub_topic, BUFFER_SIZE, "rplstats/json");
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
-  if(len < 0 || len >= BUFFER_SIZE) {
+  if (len < 0 || len >= BUFFER_SIZE)
+  {
     LOG_DBG("Pub Topic: %d, Buffer %d\n", len, BUFFER_SIZE);
     return 0;
   }
@@ -446,21 +449,6 @@ construct_pub_topic(void)
 #if MQTT_5
   PUB_TOPIC_ALIAS = 1;
 #endif
-
-  return 1;
-}
-/*---------------------------------------------------------------------------*/
-static int
-construct_sub_topic(void)
-{
-  int len = snprintf(sub_topic, BUFFER_SIZE, "iot-2/cmd/%s/fmt/json",
-                     conf.cmd_type);
-
-  /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
-  if(len < 0 || len >= BUFFER_SIZE) {
-    LOG_DBG("Sub Topic: %d, Buffer %d\n", len, BUFFER_SIZE);
-    return 0;
-  }
 
   return 1;
 }
@@ -475,7 +463,8 @@ construct_client_id(void)
                      linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
-  if(len < 0 || len >= BUFFER_SIZE) {
+  if (len < 0 || len >= BUFFER_SIZE)
+  {
     LOG_ERR("Client ID: %d, Buffer %d\n", len, BUFFER_SIZE);
     return 0;
   }
@@ -486,19 +475,14 @@ construct_client_id(void)
 static void
 update_config(void)
 {
-  if(construct_client_id() == 0) {
+  if (construct_client_id() == 0)
+  {
     /* Fatal error. Client ID larger than the buffer */
     state = STATE_CONFIG_ERROR;
     return;
   }
-
-  if(construct_sub_topic() == 0) {
-    /* Fatal error. Topic larger than the buffer */
-    state = STATE_CONFIG_ERROR;
-    return;
-  }
-
-  if(construct_pub_topic() == 0) {
+  if (construct_pub_topic() == 0)
+  {
     /* Fatal error. Topic larger than the buffer */
     state = STATE_CONFIG_ERROR;
     return;
@@ -550,26 +534,126 @@ init_config()
   return 1;
 }
 /*---------------------------------------------------------------------------*/
-static void
-subscribe(void)
-{
-  /* Publish MQTT topic in IBM quickstart format */
-  mqtt_status_t status;
+static void lladdr_to_hex(const uip_lladdr_t *ll, char *out, size_t outlen) {
+  if(!out || outlen < 2) return;
+  if(!ll) { snprintf(out, outlen, "-"); return; }
+  /* uip_lladdr_t.addr is 8 bytes on 802.15.4 */
+  char *p = out;
+  for(size_t i = 0; i < sizeof(ll->addr) && (p + 2) < (out + outlen); i++) {
+    p += snprintf(p, (size_t)(out + outlen - p), "%02x", ll->addr[i]);
+  }
+  *p = '\0';
+}
 
-#if MQTT_5
-  status = mqtt_subscribe(&conn, NULL, sub_topic, MQTT_QOS_LEVEL_0,
-                          MQTT_NL_OFF, MQTT_RAP_OFF, MQTT_RET_H_SEND_ALL,
-                          MQTT_PROP_LIST_NONE);
+static const char *ds6_state_str(uint8_t s) {
+#if defined(NBR_INCOMPLETE)
+  switch(s) {
+    case NBR_INCOMPLETE: return "INCOMPLETE";
+    case NBR_REACHABLE:  return "REACHABLE";
+    case NBR_STALE:      return "STALE";
+    case NBR_DELAY:      return "DELAY";
+    case NBR_PROBE:      return "PROBE";
+    default:             return "?";
+  }
 #else
-  status = mqtt_subscribe(&conn, NULL, sub_topic, MQTT_QOS_LEVEL_0);
+  (void)s; return "?";
+#endif
+}
+
+static void log_rpl_table(void) {
+  int count = 0;
+  LOG_DBG("---- RPL neighbors ----\n");
+  for(rpl_nbr_t *rn = nbr_table_head(rpl_neighbors);
+      rn != NULL;
+      rn = nbr_table_next(rpl_neighbors, rn)) {
+
+    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(rn);
+    char ipstr[64]; ipstr[0] = '\0';
+    if(ip) { uiplib_ipaddr_snprint(ipstr, sizeof ipstr, ip); }
+
+    /* Link stats (if available) */
+    const struct link_stats *ls = rpl_neighbor_get_link_stats(rn);
+    int etx  = (ls ? ls->etx  : -1);
+    int rssi = (ls ? ls->rssi : -128);
+    bool fresh = false;
+    unsigned long age = 0;
+#if LINK_STATS_CONF_WITH_TIME
+    if(ls) {
+      fresh = link_stats_is_fresh(ls);
+      if(ls->last_tx_time) {
+        age = (unsigned long)(clock_time() - ls->last_tx_time);
+      }
+    }
+#else
+    if(ls) {
+      fresh = link_stats_is_fresh(ls);
+    }
 #endif
 
-  LOG_DBG("Subscribing!\n");
-  if(status == MQTT_STATUS_OUT_QUEUE_FULL) {
-    LOG_ERR("Tried to subscribe but command queue was full!\n");
+    uint16_t rank_raw  = rn->rank;
+    uint16_t dag_rank  = DAG_RANK(rn->rank);
+    bool is_parent     = rpl_neighbor_is_parent(rn);
+    bool is_pref       = (rn == curr_instance.dag.preferred_parent);
+    bool acceptable    = rpl_neighbor_is_acceptable_parent(rn);
+
+    LOG_DBG("RPL[%02d] ip=%s rank_raw=%u dag_rank=%u etx=%d rssi=%d fresh=%d age=%lu parent=%d pref=%d acceptable=%d\n",
+             ++count, ip ? ipstr : "-", rank_raw, dag_rank, etx, rssi,
+             fresh, age, is_parent, is_pref, acceptable);
+  }
+  if(count == 0) {
+    LOG_DBG("RPL: (empty)\n");
   }
 }
+
+static void log_ds6_table(void) {
+  int count = 0;
+  LOG_DBG("---- DS6 neighbors ----\n");
+  for(uip_ds6_nbr_t *dn = uip_ds6_nbr_head();
+      dn != NULL;
+      dn = uip_ds6_nbr_next(dn)) {
+
+    char ipstr[64]; ipstr[0] = '\0';
+    uiplib_ipaddr_snprint(ipstr, sizeof ipstr, &dn->ipaddr);
+
+    const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
+    char llhex[2 * sizeof(ll ? ll->addr : (uint8_t[8]){0}) + 1];
+    lladdr_to_hex(ll, llhex, sizeof llhex);
+
+    /* If you want link-stats here too, map LL -> link_stats */
+    int etx = -1, rssi = -128;
+    bool fresh = false;
+    unsigned long age = 0;
+    if(ll) {
+      linkaddr_t la;
+      memcpy(la.u8, ll->addr, sizeof la.u8);
+      const struct link_stats *ls = link_stats_from_lladdr(&la);
+      if(ls) {
+        etx = ls->etx;
+        rssi = ls->rssi;
+        fresh = link_stats_is_fresh(ls);
+        if(ls->last_tx_time) {
+          age = (unsigned long)(clock_time() - ls->last_tx_time);
+        }
+      }
+    }
+
+    LOG_DBG("DS6[%02d] ip=%s ll=%s state=%s isrouter=%d etx=%d rssi=%d fresh=%d age=%lu\n",
+             ++count, ipstr, ll ? llhex : "-", ds6_state_str(dn->state),
+             dn->isrouter, etx, rssi, fresh, age);
+  }
+  if(count == 0) {
+    LOG_DBG("DS6: (empty)\n");
+  }
+}
+
 /*---------------------------------------------------------------------------*/
+#define DS6_WARMUP_S 20
+#define DS6_MAX_AGE (60 * CLOCK_SECOND)
+
+#ifndef LINK_STATS_RSSI_UNKNOWN
+#define LINK_STATS_RSSI_UNKNOWN (-100) // Typical sentinel value for unknown RSSI
+#endif
+
 static void publish(void)
 {
   int len;
@@ -592,6 +676,10 @@ static void publish(void)
 
   seq_nr_value++;
   buf_ptr = app_buffer;
+
+  log_rpl_table();
+  log_ds6_table();
+  
 
   /* IPv6 global address */
   global_addr = uip_ds6_get_global(ADDR_PREFERRED);
@@ -648,7 +736,7 @@ static void publish(void)
                  "\"RPL Rank\":%u,"
                  "\"RPL DAG Rank\":%u,"
                  "\"Preferred Parent\":\"%s\"",
-                 seq_nr_value, timestamp, node_id_str, ipv6_addr_str, 
+                 seq_nr_value, timestamp, node_id_str, ipv6_addr_str,
                  rpl_instance_id, dodag_id_str, dodag_version,
                  rpl_rank, rpl_dag_rank, preferred_parent_str);
   if (len < 0 || len >= remaining)
@@ -670,10 +758,11 @@ static void publish(void)
   }
   remaining -= len;
   buf_ptr += len;
-
   /* =========================
-   *   neighbors: DS6 ∪ RPL
+   *   neighbors: RPL ∪ DS6
    * ========================= */
+
+  /* Open neighbors array */
   len = snprintf(buf_ptr, remaining, ",\"neighbors\":[");
   if (len < 0 || len >= remaining)
   {
@@ -683,35 +772,64 @@ static void publish(void)
   remaining -= len;
   buf_ptr += len;
 
-  bool first_neighbor = true;
-  char neighbor_addr_str[64];
+  bool first = true;
 
-  /* ---- Pass 1: DS6 neighbors (IP-level) ---- */
-  for (uip_ds6_nbr_t *ds6_nbr = uip_ds6_nbr_head();
-       ds6_nbr != NULL;
-       ds6_nbr = uip_ds6_nbr_next(ds6_nbr))
+  /* ---- Pass 1: RPL neighbors (fresh only); merge DS6 info if present ---- */
+  for (rpl_nbr_t *rn = nbr_table_head(rpl_neighbors); rn; rn = nbr_table_next(rpl_neighbors, rn))
   {
+    if (remaining < 220)
+      break;
 
-    if (remaining < 250)
-      break; /* keep tail room */
+    uint16_t my_dag = DAG_RANK(curr_instance.dag.rank);
+    uint16_t nb_dag = DAG_RANK(rn->rank);
+    bool parent = rpl_neighbor_is_parent(rn);
+    bool candidate = rpl_neighbor_is_acceptable_parent(rn);
+    bool upward = (nb_dag < my_dag);
+    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(rn);
 
-    /* IP string */
-    uiplib_ipaddr_snprint(neighbor_addr_str, sizeof(neighbor_addr_str), &ds6_nbr->ipaddr);
-
-    /* Link-layer address -> link-stats */
-    const uip_lladdr_t *lladdr = uip_ds6_nbr_get_ll(ds6_nbr);
-    const struct link_stats *stats = NULL;
-    linkaddr_t ll_tmp;
-    if (lladdr)
+    /* DS6 recency: only "recent" will earn +ds6 */
+    bool ds6_recent = false;
+    uip_ds6_nbr_t *dn = uip_ds6_nbr_lookup(ip);
+    const uip_lladdr_t *uip_ll = dn ? uip_ds6_nbr_get_ll(dn) : NULL;
+    const struct link_stats *ls_ds6 = NULL;
+    linkaddr_t la;
+    if (uip_ll)
     {
-      memcpy(ll_tmp.u8, lladdr->addr, sizeof(ll_tmp.u8));
-      stats = link_stats_from_lladdr(&ll_tmp);
+      memcpy(la.u8, uip_ll->addr, sizeof(la.u8));
+      ls_ds6 = link_stats_from_lladdr(&la);
     }
 
-    /* Try to cross-link with RPL neighbor (optional extra info) */
-    rpl_nbr_t *rn = rpl_neighbor_get_from_ipaddr(&ds6_nbr->ipaddr);
+#if defined(LINK_STATS_CONF_WITH_TIME) && LINK_STATS_CONF_WITH_TIME
+    if (ls_ds6 && ls_ds6->last_tx_time && (clock_time() - ls_ds6->last_tx_time) <= DS6_MAX_AGE)
+    {
+      ds6_recent = true;
+    }
+    if (!ds6_recent){
+      LOG_DBG("DS6 not recent: last_tx_time %lu, age %lu\n", ls_ds6->last_tx_time, clock_time() - ls_ds6->last_tx_time);
+    }
+#endif
 
-    if (!first_neighbor)
+    /* Only keep neighbors that are routing relevant or are recent */
+    // bool include = (parent || candidate || upward || ds6_recent);
+    bool include = (ds6_recent);
+
+    char ipstr[64];
+    uiplib_ipaddr_snprint(ipstr, sizeof(ipstr), ip);
+
+    if (!include)
+    {
+      /* Skip stale neighbors (either RPL or DS6 not recent) */
+      LOG_DBG("Skipping stale neighbor %s: (rank %u, dag %u)(parent %u, candidate %u, upward %u, ds6_recent %u)\n",
+            ipstr, nb_dag, my_dag, parent, candidate, upward, ds6_recent);
+      continue;
+    }
+
+    LOG_DBG("Including neighbor %s : (rank %u, dag %u) (parent %u, candidate %u, upward %u, ds6_recent %u)\n",
+            ipstr, nb_dag, my_dag, parent, candidate, upward, ds6_recent);
+
+
+    /* Emit the neighbor entry */
+    if (!first)
     {
       len = snprintf(buf_ptr, remaining, ",");
       if (len < 0 || len >= remaining)
@@ -719,100 +837,203 @@ static void publish(void)
       remaining -= len;
       buf_ptr += len;
     }
-    first_neighbor = false;
+    first = false;
 
-    len = snprintf(buf_ptr, remaining,
-                   "{"
-                   "\"addr\":\"%s\","
-                   "\"lladdr\":\"%02x%02x%02x%02x%02x%02x%02x%02x\","
-                   "\"state\":%u,"
-                   "\"isrouter\":%s,"
-                   "\"etx\":%u,"
-                   "\"rssi\":%d,"
-                   "\"rpl_rank\":%s,"
-                   "\"rpl_dag_rank\":%s,"
-                   "\"rpl_link_metric\":%s,"
-                   "\"is_rpl_parent\":%s,"
-                   "\"is_preferred_parent\":%s,"
-                   "\"source\":\"ds6\""
-                   "}",
-                   neighbor_addr_str,
-                   lladdr ? lladdr->addr[0] : 0, lladdr ? lladdr->addr[1] : 0,
-                   lladdr ? lladdr->addr[2] : 0, lladdr ? lladdr->addr[3] : 0,
-                   lladdr ? lladdr->addr[4] : 0, lladdr ? lladdr->addr[5] : 0,
-                   lladdr ? lladdr->addr[6] : 0, lladdr ? lladdr->addr[7] : 0,
-                   ds6_nbr->state,
-                   ds6_nbr->isrouter ? "true" : "false",
-                   stats ? stats->etx : 0xFFFF,
-                   stats ? stats->rssi : 0,
-                   rn ? ({ char tmp[12]; snprintf(tmp,sizeof(tmp),"%u", rn->rank), tmp; }) : "null",
-                   rn ? ({ char tmp[12]; snprintf(tmp,sizeof(tmp),"%u", DAG_RANK(rn->rank)), tmp; }) : "null",
-                   rn ? ({ char tmp[12]; snprintf(tmp,sizeof(tmp),"%u", rpl_neighbor_get_link_metric(rn)), tmp; }) : "null",
-                   rn && rpl_neighbor_is_parent(rn) ? "true" : "false",
-                   rn && (rn == curr_instance.dag.preferred_parent) ? "true" : "false");
+    len = snprintf(buf_ptr, remaining, "{\"addr\":\"%s\",", ipstr);
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
-  }
 
-  /* ---- Pass 2: RPL neighbors not in DS6 (radio peers before IP traffic) ---- */
-  for (rpl_nbr_t *rn = nbr_table_head(rpl_neighbors);
-       rn != NULL;
-       rn = nbr_table_next(rpl_neighbors, rn))
-  {
-
-    if (remaining < 220)
-      break;
-
-    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(rn);
-    if (!ip)
-      continue;
-    if (uip_ds6_nbr_lookup(ip) != NULL)
-      continue; /* already printed in DS6 pass */
-
-    uiplib_ipaddr_snprint(neighbor_addr_str, sizeof(neighbor_addr_str), ip);
-    const struct link_stats *stats = rpl_neighbor_get_link_stats(rn);
-
-    if (!first_neighbor)
+    /* Link-layer address (if available) */
+    if (uip_ll)
     {
-      len = snprintf(buf_ptr, remaining, ",");
-      if (len < 0 || len >= remaining)
-        break;
-      remaining -= len;
-      buf_ptr += len;
+      char llbuf[2 * sizeof(uip_ll->addr) + 1];
+      for (size_t i = 0; i < sizeof(uip_ll->addr); i++)
+      {
+        snprintf(&llbuf[2 * i], 3, "%02x", uip_ll->addr[i]);
+      }
+      len = snprintf(buf_ptr, remaining, "\"lladdr\":\"%s\",", llbuf);
     }
-    first_neighbor = false;
+    else
+    {
+      len = snprintf(buf_ptr, remaining, "\"lladdr\":null,");
+    }
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    /* DS6 state/isrouter if available, else nulls */
+    if (dn)
+    {
+      len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,",
+                     dn->state, dn->isrouter ? "true" : "false");
+    }
+    else
+    {
+      len = snprintf(buf_ptr, remaining, "\"state\":null,\"isrouter\":null,");
+    }
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+#ifndef LINK_STATS_RSSI_UNKNOWN
+#define LINK_STATS_RSSI_UNKNOWN (-100)
+#endif
+#ifdef LINK_STATS_ETX_INIT
+    bool etx_known = (ls_ds6 && ls_ds6->etx != LINK_STATS_ETX_INIT);
+#else
+    bool etx_known = (ls_ds6 != NULL);
+#endif
+    bool rssi_known = (ls_ds6 && ls_ds6->rssi > LINK_STATS_RSSI_UNKNOWN);
+
+    /* ETX/RSSI number-or-null */
+    if (etx_known)
+    {
+      len = snprintf(buf_ptr, remaining, "\"etx\":%u,", ls_ds6->etx);
+    }
+    else
+    {
+      len = snprintf(buf_ptr, remaining, "\"etx\":null,");
+    }
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    if (rssi_known)
+    {
+      len = snprintf(buf_ptr, remaining, "\"rssi\":%d,", ls_ds6->rssi);
+    }
+    else
+    {
+      len = snprintf(buf_ptr, remaining, "\"rssi\":null,");
+    }
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    /* RPL fields (always present in this pass) */
+    len = snprintf(buf_ptr, remaining,
+                   "\"rpl_rank_raw\":%u,\"rpl_dag_rank\":%u,\"rpl_link_metric\":%u,",
+                   (unsigned)rn->rank, (unsigned)DAG_RANK(rn->rank), rpl_neighbor_get_link_metric(rn));
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
 
     len = snprintf(buf_ptr, remaining,
-                   "{"
-                   "\"addr\":\"%s\","
-                   "\"lladdr\":null,"
-                   "\"state\":null,"
-                   "\"isrouter\":null,"
-                   "\"etx\":%u,"
-                   "\"rssi\":%d,"
-                   "\"rpl_rank\":%u,"
-                   "\"rpl_dag_rank\":%u,"
-                   "\"rpl_link_metric\":%u,"
-                   "\"is_rpl_parent\":%s,"
-                   "\"is_preferred_parent\":%s,"
-                   "\"source\":\"rpl\""
-                   "}",
-                   neighbor_addr_str,
-                   stats ? stats->etx : 0xFFFF,
-                   stats ? stats->rssi : 0,
-                   rn->rank,
-                   DAG_RANK(rn->rank),
-                   rpl_neighbor_get_link_metric(rn),
+                   "\"is_rpl_parent\":%s,\"is_preferred_parent\":%s,",
                    rpl_neighbor_is_parent(rn) ? "true" : "false",
                    (rn == curr_instance.dag.preferred_parent) ? "true" : "false");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
+
+    /* Source tag */
+    len = snprintf(buf_ptr, remaining, "\"source\":\"rpl+ds6\"}");
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
   }
 
+  /* ---- Pass 2: DS6 neighbors (recent only), skip ones covered by fresh RPL ---- */
+  for (uip_ds6_nbr_t *dn = uip_ds6_nbr_head(); dn; dn = uip_ds6_nbr_next(dn))
+  {
+    if (remaining < 250)
+      break;
+
+    uip_ipaddr_t *ip = &dn->ipaddr;
+    rpl_nbr_t *rn = rpl_neighbor_get_from_ipaddr(ip);
+    if (rn && rpl_neighbor_is_fresh(rn))
+      continue; /* Skip fresh RPL neighbors already added */
+
+    /* DS6 recency gate: warm-up or last_tx_time age */
+    bool recent = false;
+#if defined(LINK_STATS_CONF_WITH_TIME) && LINK_STATS_CONF_WITH_TIME
+    const uip_lladdr_t *uip_ll = uip_ds6_nbr_get_ll(dn);
+    const struct link_stats *ls = NULL;
+    linkaddr_t la;
+    if (uip_ll)
+    {
+      memcpy(la.u8, uip_ll->addr, sizeof(la.u8));
+      ls = link_stats_from_lladdr(&la);
+    }
+    if (clock_seconds() < DS6_WARMUP_S)
+    {
+      recent = true;
+    }
+    else if (ls && ls->last_tx_time && (clock_time() - ls->last_tx_time) <= DS6_MAX_AGE)
+    {
+      recent = true;
+    }
+#endif
+    if (!recent)
+      continue;
+
+    /* Emit DS6-only neighbor */
+    if (!first)
+    {
+      len = snprintf(buf_ptr, remaining, ",");
+      if (len < 0 || len >= remaining)
+        break;
+      remaining -= len;
+      buf_ptr += len;
+    }
+    first = false;
+
+    char ipstr[64];
+    uiplib_ipaddr_snprint(ipstr, sizeof(ipstr), ip);
+    len = snprintf(buf_ptr, remaining, "{\"addr\":\"%s\",", ipstr);
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
+    if (ll)
+    {
+      char llbuf[2 * sizeof(ll->addr) + 1];
+      for (size_t i = 0; i < sizeof(ll->addr); i++)
+      {
+        snprintf(&llbuf[2 * i], 3, "%02x", ll->addr[i]);
+      }
+      len = snprintf(buf_ptr, remaining, "\"lladdr\":\"%s\",", llbuf);
+    }
+    else
+    {
+      len = snprintf(buf_ptr, remaining, "\"lladdr\":null,");
+    }
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,",
+                   dn->state, dn->isrouter ? "true" : "false");
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+
+    /* DS6-only: no RPL metrics */
+    len = snprintf(buf_ptr, remaining,
+                   "\"etx\":null,\"rssi\":null,"
+                   "\"rpl_rank_raw\":null,\"rpl_dag_rank\":null,\"rpl_link_metric\":null,"
+                   "\"is_rpl_parent\":false,\"is_preferred_parent\":false,"
+                   "\"source\":\"ds6\"}");
+    if (len < 0 || len >= remaining)
+      break;
+    remaining -= len;
+    buf_ptr += len;
+  }
+
+  /* Close neighbors array */
   len = snprintf(buf_ptr, remaining, "]");
   if (len < 0 || len >= remaining)
   {
@@ -1101,7 +1322,8 @@ send_auth(struct mqtt_prop_auth_event *auth_info, mqtt_auth_type_t auth_type)
 {
   mqtt_prop_clear_prop_list(&auth_props);
 
-  if(auth_info->auth_method.length) {
+  if (auth_info->auth_method.length)
+  {
     (void)mqtt_prop_register(&auth_props,
                              NULL,
                              MQTT_FHDR_MSG_TYPE_AUTH,
@@ -1109,7 +1331,8 @@ send_auth(struct mqtt_prop_auth_event *auth_info, mqtt_auth_type_t auth_type)
                              auth_info->auth_method.string);
   }
 
-  if(auth_info->auth_data.len) {
+  if (auth_info->auth_data.len)
+  {
     (void)mqtt_prop_register(&auth_props,
                              NULL,
                              MQTT_FHDR_MSG_TYPE_AUTH,
@@ -1121,7 +1344,8 @@ send_auth(struct mqtt_prop_auth_event *auth_info, mqtt_auth_type_t auth_type)
   /* Connect to MQTT server */
   mqtt_auth(&conn, auth_type, auth_props);
 
-  if(state != STATE_CONNECTING) {
+  if (state != STATE_CONNECTING)
+  {
     LOG_DBG("MQTT reauthenticating\n");
   }
 }
@@ -1130,10 +1354,13 @@ send_auth(struct mqtt_prop_auth_event *auth_info, mqtt_auth_type_t auth_type)
 static void
 ping_parent(void)
 {
-  if(have_connectivity()) {
+  if (have_connectivity())
+  {
     uip_icmp6_send(uip_ds6_defrt_choose(), ICMP6_ECHO_REQUEST, 0,
                    ECHO_REQ_PAYLOAD_LEN);
-  } else {
+  }
+  else
+  {
     LOG_WARN("ping_parent() is called while we don't have connectivity\n");
   }
 }
@@ -1141,7 +1368,8 @@ ping_parent(void)
 static void
 state_machine(void)
 {
-  switch(state) {
+  switch (state)
+  {
   case STATE_INIT:
     /* If we have just been configured register MQTT connection */
     mqtt_register(&conn, &mqtt_client_process, client_id, mqtt_event,
@@ -1151,12 +1379,16 @@ state_machine(void)
      * If we are not using the quickstart service (thus we are an IBM
      * registered device), we need to provide user name and password
      */
-    if(strncasecmp(conf.org_id, QUICKSTART, strlen(conf.org_id)) != 0) {
-      if(strlen(conf.auth_token) == 0) {
+    if (strncasecmp(conf.org_id, QUICKSTART, strlen(conf.org_id)) != 0)
+    {
+      if (strlen(conf.auth_token) == 0)
+      {
         LOG_ERR("User name set, but empty auth token\n");
         state = STATE_ERROR;
         break;
-      } else {
+      }
+      else
+      {
         mqtt_set_username_password(&conn, MQTT_CLIENT_USERNAME,
                                    conf.auth_token);
       }
@@ -1183,12 +1415,15 @@ state_machine(void)
     LOG_DBG("Init MQTT version %d\n", MQTT_PROTOCOL_VERSION);
     /* Continue */
   case STATE_REGISTERED:
-    if(have_connectivity()) {
+    if (have_connectivity())
+    {
       /* Registered and with a public IP. Connect */
       LOG_DBG("Registered. Connect attempt %u\n", connect_attempt);
       ping_parent();
       connect_to_broker();
-    } else {
+    }
+    else
+    {
       leds_on(MQTT_CLIENT_STATUS_LED);
       ctimer_set(&ct, NO_NET_LED_DURATION, publish_led_off, NULL);
     }
@@ -1203,14 +1438,16 @@ state_machine(void)
     break;
   case STATE_CONNECTED:
     /* Don't subscribe unless we are a registered device */
-    if(strncasecmp(conf.org_id, QUICKSTART, strlen(conf.org_id)) == 0) {
+    if (strncasecmp(conf.org_id, QUICKSTART, strlen(conf.org_id)) == 0)
+    {
       LOG_DBG("Using 'quickstart': Skipping subscribe\n");
       state = STATE_PUBLISHING;
     }
     /* Continue */
   case STATE_PUBLISHING:
     /* If the timer expired, the connection is stable. */
-    if(timer_expired(&connection_life)) {
+    if (timer_expired(&connection_life))
+    {
       /*
        * Intentionally using 0 here instead of 1: We want RECONNECT_ATTEMPTS
        * attempts if we disconnect after a successful connect
@@ -1218,12 +1455,15 @@ state_machine(void)
       connect_attempt = 0;
     }
 
-    if(mqtt_ready(&conn) && conn.out_buffer_sent) {
+    if (mqtt_ready(&conn) && conn.out_buffer_sent)
+    {
       /* Connected. Publish */
-      if(state == STATE_CONNECTED) {
-        subscribe();
+      if (state == STATE_CONNECTED)
+      {
         state = STATE_PUBLISHING;
-      } else {
+      }
+      else
+      {
         leds_on(MQTT_CLIENT_STATUS_LED);
         ctimer_set(&ct, PUBLISH_LED_ON_DURATION, publish_led_off, NULL);
         LOG_DBG("Publishing\n");
@@ -1232,7 +1472,9 @@ state_machine(void)
       etimer_set(&publish_periodic_timer, conf.pub_interval);
       /* Return here so we don't end up rescheduling the timer */
       return;
-    } else {
+    }
+    else
+    {
       /*
        * Our publish timer fired, but some MQTT packet is already in flight
        * (either not sent at all, or sent but not fully ACKd).
@@ -1248,8 +1490,9 @@ state_machine(void)
     break;
   case STATE_DISCONNECTED:
     LOG_DBG("Disconnected\n");
-    if(connect_attempt < RECONNECT_ATTEMPTS ||
-       RECONNECT_ATTEMPTS == RETRY_FOREVER) {
+    if (connect_attempt < RECONNECT_ATTEMPTS ||
+        RECONNECT_ATTEMPTS == RETRY_FOREVER)
+    {
       /* Disconnect and backoff */
       clock_time_t interval;
 #if MQTT_5
@@ -1259,8 +1502,7 @@ state_machine(void)
 #endif
       connect_attempt++;
 
-      interval = connect_attempt < 3 ? RECONNECT_INTERVAL << connect_attempt :
-        RECONNECT_INTERVAL << 3;
+      interval = connect_attempt < 3 ? RECONNECT_INTERVAL << connect_attempt : RECONNECT_INTERVAL << 3;
 
       LOG_DBG("Disconnected. Attempt %u in %lu ticks\n", connect_attempt, interval);
 
@@ -1268,7 +1510,9 @@ state_machine(void)
 
       state = STATE_REGISTERED;
       return;
-    } else {
+    }
+    else
+    {
       /* Max reconnect attempts reached. Enter error state */
       state = STATE_ERROR;
       LOG_DBG("Aborting connection after %u attempts\n", connect_attempt - 1);
@@ -1300,8 +1544,10 @@ init_extensions(void)
 {
   int i;
 
-  for(i = 0; i < mqtt_client_extension_count; i++) {
-    if(mqtt_client_extensions[i]->init) {
+  for (i = 0; i < mqtt_client_extension_count; i++)
+  {
+    if (mqtt_client_extensions[i]->init)
+    {
       mqtt_client_extensions[i]->init();
     }
   }
@@ -1314,7 +1560,8 @@ PROCESS_THREAD(mqtt_client_process, ev, data)
 
   printf("MQTT Client Process\n");
 
-  if(init_config() != 1) {
+  if (init_config() != 1)
+  {
     PROCESS_EXIT();
   }
 
@@ -1328,26 +1575,31 @@ PROCESS_THREAD(mqtt_client_process, ev, data)
   etimer_set(&echo_request_timer, conf.def_rt_ping_interval);
 
   /* Main loop */
-  while(1) {
+  while (1)
+  {
 
     PROCESS_YIELD();
 
-    if(ev == button_hal_release_event &&
-       ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO) {
-      if(state == STATE_ERROR) {
+    if (ev == button_hal_release_event &&
+        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO)
+    {
+      if (state == STATE_ERROR)
+      {
         connect_attempt = 1;
         state = STATE_REGISTERED;
       }
     }
 
-    if((ev == PROCESS_EVENT_TIMER && data == &publish_periodic_timer) ||
-       ev == PROCESS_EVENT_POLL ||
-       (ev == button_hal_release_event &&
-        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO)) {
+    if ((ev == PROCESS_EVENT_TIMER && data == &publish_periodic_timer) ||
+        ev == PROCESS_EVENT_POLL ||
+        (ev == button_hal_release_event &&
+         ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO))
+    {
       state_machine();
     }
 
-    if(ev == PROCESS_EVENT_TIMER && data == &echo_request_timer) {
+    if (ev == PROCESS_EVENT_TIMER && data == &echo_request_timer)
+    {
       ping_parent();
       etimer_set(&echo_request_timer, conf.def_rt_ping_interval);
     }

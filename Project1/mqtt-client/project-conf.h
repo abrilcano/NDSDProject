@@ -35,6 +35,29 @@
 /* Enable TCP */
 #define UIP_CONF_TCP 1
 
+/* ND6/RPL Neighbor Cache Configuration */
+/* Reduce reachable time (default is usually 30000 ms = 30 seconds) */
+#define UIP_CONF_ND6_REACHABLE_TIME 5000  /* 5 seconds */
+
+/* Reduce retransmission timer (default is usually 1000 ms) */
+#define UIP_CONF_ND6_RETRANS_TIMER 500     /* 500 ms */
+
+/* RPL-specific timings */
+#define RPL_CONF_PROBING_INTERVAL 25
+#define RPL_CONF_DIO_INTERVAL_MIN 12        /* Faster DIO intervals */
+#define RPL_CONF_DIO_INTERVAL_DOUBLINGS 8
+
+/* Maximum number of neighbor solicitations */
+#define UIP_CONF_ND6_MAX_MULTICAST_SOLICIT 3
+#define UIP_CONF_ND6_MAX_UNICAST_SOLICIT 3
+
+#define RPL_CONF_DEFAULT_LIFETIME_UNIT   30
+#define RPL_CONF_DEFAULT_LIFETIME        10
+
+#define LINK_STATS_CONF_WITH_TIME 1
+
+#define DEFAULT_DEF_RT_PING_INTERVAL (5 * CLOCK_SECOND)
+
 /* Change to 1 to use with the IBM Watson IoT platform */
 #define MQTT_CLIENT_CONF_WITH_IBM_WATSON 0
 
