@@ -1,0 +1,68 @@
+{
+    "Seq #": 2,
+    "Timestamp": 44,
+    "Node ID": "5",
+    "IPv6 Address": "fd00::205:5:5:5",
+    "RPL Instance ID": 0,
+    "DODAG ID": "fd00::201:1:1:1",
+    "DODAG Version": 240,
+    "RPL Rank": 265,
+    "RPL DAG Rank": 2,
+    "Preferred Parent": "fe80::201:1:1:1",
+    "Def Route": "fe80::201:1:1:1",
+    "neighbors": [
+        {
+            "addr": "fe80::201:1:1:1",
+            "lladdr": "0001000100010001",
+            "state": 1,
+            "isrouter": false,
+            "etx": 137,
+            "rssi": null,
+            "rpl_rank_raw": 128,
+            "rpl_dag_rank": 1,
+            "rpl_link_metric": 137,
+            "is_rpl_parent": true,
+            "is_preferred_parent": true,
+            "source": "rpl+ds6"
+        },
+        {
+            "addr": "fe80::202:2:2:2",
+            "lladdr": "0002000200020002",
+            "state": 1,
+            "isrouter": false,
+            "etx": 138,
+            "rssi": null,
+            "rpl_rank_raw": 493,
+            "rpl_dag_rank": 3,
+            "rpl_link_metric": 138,
+            "is_rpl_parent": false,
+            "is_preferred_parent": false,
+            "source": "rpl+ds6"
+        }
+    ],
+    "objective_function": "MRHOF",
+    "is_root": false,
+    "parent_set": [
+        {
+            "addr": "fe80::201:1:1:1",
+            "neighbor_rank": 128,
+            "neighbor_dag_rank": 1,
+            "link_metric_to_neighbor": 137,
+            "path_metric_via_neighbor": 265,
+            "is_preferred": true
+        }
+    ],
+    "parent_candidates": [
+        {
+            "addr": "fe80::201:1:1:1",
+            "neighbor_rank": 128,
+            "neighbor_dag_rank": 1,
+            "acceptable": true,
+            "link_metric_to_neighbor": 137,
+            "path_metric_via_neighbor": 265,
+            "is_parent": true,
+            "is_preferred": true
+        }
+    ],
+    "parent_set_reason": "ok"
+}

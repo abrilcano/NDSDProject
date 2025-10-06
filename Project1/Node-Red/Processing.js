@@ -1,16 +1,63 @@
 // RPL Update & Metrics — Simplified for single network / no dedupe
 // Assumptions: single DODAG/OF at a time, every msg has "Node ID", no need to de-dup,
-// synthetic root is desired, repeated Seq# harmless.
 
 'use strict';
 
 // ---- Tunables ----
-const STALE_MS = 120000;                 // prune nodes idle > 2 min (wall-clock)
-const COUNT_ROOT_IN_DEPTH_STATS = false; // include depth(root)=0 in stats?
-const ROOT_ID = '1';                     // non-reporting border router
+const STALE_MS = 120000;                 
+const COUNT_ROOT_IN_DEPTH_STATS = false; 
+const ROOT_ID = '1';                     
 const ROOT_LL_FALLBACK = 'fe80::201:1:1:1';
 
 // ---- Helpers ----
+
+
+function getETX(a, b) {
+  const ia = store.nodes[a], ib = store.nodes[b];
+  const ab = ia?.neighCosts?.[b];
+  const ba = ib?.neighCosts?.[a];
+  if (Number.isFinite(ab) && Number.isFinite(ba)) return (ab + ba) / 2; // symmetric weight
+  if (Number.isFinite(ab)) return ab;
+  if (Number.isFinite(ba)) return ba;
+  return 1; // fallback
+}
+
+function dijkstraAllPairs(adjW, nodes) {
+  let diamW = 0, total = 0, pairs = 0;
+  for (const s of nodes) {
+    // init
+    const dist = new Map(nodes.map(n => [n, Infinity]));
+    dist.set(s, 0);
+    const pq = [[0, s]]; // tiny array-based PQ (ok for small N)
+
+    while (pq.length) {
+      // extract-min
+      let mi = 0;
+      for (let i = 1; i < pq.length; i++) if (pq[i][0] < pq[mi][0]) mi = i;
+      const [du, u] = pq.splice(mi, 1)[0];
+      if (du > dist.get(u)) continue;
+
+      for (const [v, w] of (adjW[u] || [])) {
+        const nd = du + w;
+        if (nd < dist.get(v)) {
+          dist.set(v, nd);
+          pq.push([nd, v]);
+        }
+      }
+    }
+
+    for (const t of nodes) {
+      if (t === s) continue;
+      const d = dist.get(t);
+      if (d !== undefined && d < Infinity) {
+        if (d > diamW) diamW = d;
+        total += d; pairs += 1;
+      }
+    }
+  }
+  return { diameterW: diamW, avgPathLenW: (pairs ? total / pairs : 0) };
+}
+
 function nodeIdFromIPv6(addr, fallback) {
   if (typeof addr !== 'string') return fallback;
   // Match ::201:1:1:1 or ::203:3:3:3  -> second hextet repeated is node-id
@@ -26,6 +73,13 @@ function nodeIdFromIPv6(addr, fallback) {
     if (!Number.isNaN(id)) return String(id);
   }
   return fallback;
+}
+
+function addWeightedEdge(adjW, a, b, w) {
+  if (!adjW[a]) adjW[a] = [];
+  if (!adjW[b]) adjW[b] = [];
+  adjW[a].push([b, w]);
+  adjW[b].push([a, w]);
 }
 
 function addEdge(adj, a, b) {
@@ -108,17 +162,20 @@ const store = flow.get('rplStoreSimple') || {
   nodes: {},                        // nodeId -> {parentId, neighbors:Set, ...}
   startedAt: Date.now(),
   metricsAvg: { diameter:{value:0,n:0}, depthAvg:{value:0,n:0}, neighborAvg:{value:0,n:0}, apl:{value:0,n:0} },
-  history: []
+  history: [],
+  nodeNeighborStats: {} // {[nodeId]: {n, avg, min, max}}
 };
 
 // ---- Ingest ----
 const p = msg.payload || {};
 const nowMs = Date.now();
 
+// Keep current round id (Seq #) so UI can gate updates once per round if desired
+store.currentSeq = Number(p['Seq #'] ?? store.currentSeq ?? 0);
+
 // Require Node ID (guaranteed by assumption)
 const nodeId = String(p['Node ID']);
 if (!nodeId) {
-  node.log('[RPL] drop: missing Node ID');
   return null;
 }
 
@@ -137,19 +194,39 @@ n.lastSeq  = Number(p['Seq #'] ?? n.lastSeq);
 n.lastTs   = Number(p['Timestamp'] ?? 0); // sim time (unused for pruning)
 n.lastUpdateMs = nowMs;
 
-// Parent (LL IPv6 -> node id)
+// Parent (LL IPv6 -> node id) — normalized to string
 const prefParentAddr = p['Preferred Parent'];
-n.parentId = prefParentAddr ? nodeIdFromIPv6(prefParentAddr, n.parentId) : n.parentId;
+n.parentId = prefParentAddr ? String(nodeIdFromIPv6(prefParentAddr, n.parentId)) : n.parentId;
 
-// Neighbor set
+// Neighbor se
 n.neighbors = new Set();
+n.neighCosts = {};
 const neigh = Array.isArray(p.neighbors) ? p.neighbors : [];
 for (const entry of neigh) {
   const nid = nodeIdFromIPv6(entry.addr, undefined);
-  if (nid) n.neighbors.add(nid);
+  if (nid != null) {
+    const idStr = String(nid);
+    n.neighbors.add(idStr);
+    const raw = Number(entry.etx ?? entry.rpl_link_metric ?? entry.link_metric_to_neighbor);
+    let cost = 1;
+    if (Number.isFinite(raw) && raw > 0) cost = raw / 128;
+    n.neighCosts[idStr] = Math.max(1e-6, cost);
+  }
 }
 
-node.log(`[RPL] rx node=${nodeId} seq=${n.lastSeq} of=${n.of||'-'} parent=${n.parentId||'-'} neigh=${n.neighbors.size}`);
+// --- Per-node neighbor stats ---
+const seq = n.lastSeq;
+const degNow = n.neighbors.size;
+if (n._lastSeqCounted !== seq) {
+  let s = store.nodeNeighborStats[nodeId];
+  if (!s) s = store.nodeNeighborStats[nodeId] = { n: 0, avg: 0, min: degNow, max: degNow };
+  s.n += 1;
+  // s.avg += (degNow - s.avg) / s.n;
+  if (degNow < s.min) s.min = degNow;
+  if (degNow > s.max) s.max = degNow;
+  s.avg = s.min + (s.max - s.min) / 2; // rough avg
+  n._lastSeqCounted = seq;
+}
 
 // ---- Ensure synthetic root presence ----
 if (!store.nodes[ROOT_ID]) {
@@ -162,7 +239,6 @@ if (!store.nodes[ROOT_ID]) {
     of: n.of,
     lastUpdateMs: nowMs
   };
-  node.log(`[RPL] injected synthetic root id=${ROOT_ID} ipv6=${store.nodes[ROOT_ID].ipv6}`);
 } else {
   const r = store.nodes[ROOT_ID];
   r.isRoot = true;
@@ -180,34 +256,79 @@ for (const [nid, info] of Object.entries(store.nodes)) {
   }
 }
 
-// ---- Build graphs ----
+// ---- Build graphs (mutual & fresh links) ----
 const nodeIds = Object.keys(store.nodes);
+const adjW = {};
 const adj = {};     // undirected topology
 const parents = {}; // child -> parent
 let rootId = null;
 
-for (const id of nodeIds) {
+
+// Settings for freshness 
+const LINK_FRESH_MS = 3000;     // consider a node's neighbor set fresh for 3s
+
+function isFresh(id) {
   const info = store.nodes[id];
-  for (const nid of (info.neighbors || [])) addEdge(adj, id, nid);
-  if (info.parentId && info.parentId !== id) parents[id] = info.parentId;
-  if (info.isRoot) rootId = id;
+  return info && (nowMs - (info.lastUpdateMs || 0) <= LINK_FRESH_MS);
 }
+
+function aHasB(a, b) {
+  const ia = store.nodes[a];
+  return !!(ia && ia.neighbors && ia.neighbors.has(String(b)));
+}
+
+// Undirected neighbor edges:
+for (const a of nodeIds) {
+  const infoA = store.nodes[a];
+  if (!adj[a]) adj[a] = new Set();
+
+  for (const b of (infoA.neighbors || [])) {
+    const A = String(a), B = String(b);
+    const isRootEdge = (B === ROOT_ID);
+    const freshEnough = isRootEdge ? isFresh(A) : (isFresh(A) && isFresh(B));
+    const mutual = isRootEdge ? aHasB(A, B) : (aHasB(A, B) && aHasB(B, A));
+    if (freshEnough && mutual) {
+      addEdge(adj, A, B);
+      const w = getETX(A, B);
+      addWeightedEdge(adjW, A, B, w);
+    }
+  }
+  // Parent pointers for the RPL tree
+  if (infoA.parentId && infoA.parentId !== a) parents[String(a)] = String(infoA.parentId);
+  if (infoA.isRoot) rootId = String(a);
+}
+
+// Prefer explicit root; else synthetic root; else pick a node with no parent
 if (!rootId && store.nodes[ROOT_ID]) rootId = ROOT_ID;
 if (!rootId && nodeIds.length) {
   const children = new Set(Object.keys(parents));
-  rootId = nodeIds.find(id => !children.has(id)) || nodeIds[0];
+  rootId = nodeIds.find(id => !children.has(String(id))) || nodeIds[0];
 }
 
 // ---- Metrics ----
-const depths = computeDepths(parents, rootId, nodeIds);
-const depthValsAll = Object.values(depths);
-const depthVals = COUNT_ROOT_IN_DEPTH_STATS ? [0, ...depthValsAll] : depthValsAll;
+const depths = computeDepths(parents, rootId, nodeIds); // map: id -> depth
+const depthValsAll = Object.values(depths); // values only
+const depthVals = COUNT_ROOT_IN_DEPTH_STATS ? [0, ...depthValsAll] : depthValsAll; // values with root
 const depthStats = basicStats(depthVals);
 
-const degs = nodeIds.map(id => (adj[id] ? adj[id].size : 0));
-const degStats = basicStats(degs);
+// Snapshot neighbor stats by reported counts 
+const reportedDegs = nodeIds
+  .filter(id => id !== ROOT_ID)
+  .map(id => (store.nodes[id]?.neighbors?.size || 0)); // Neighbor counts
+const neighborStats = basicStats(reportedDegs);
 
+// Diameter/APL computed on the mutual/fresh undirected graph
 const { diameter, avgPathLen } = bfsAllPairs(adj, nodeIds);
+const { diameterW, avgPathLenW } = dijkstraAllPairs(adjW, nodeIds);
+// Compute longest shortest path and APL on the tree
+const treeAdj = {};
+for (const [child, parent] of Object.entries(parents)) {
+  addEdge(treeAdj, String(child), String(parent));
+}
+const treeNodes = Object.keys(treeAdj);
+
+// Longest shortest path + APL on the tree
+const { diameter: treeDiameter, avgPathLen: treeAPL } = bfsAllPairs(treeAdj, treeNodes);
 
 const undirectedEdges = Math.floor(Object.values(adj).reduce((s, set) => s + set.size, 0) / 2);
 const treeEdges = Object.keys(parents).length;
@@ -222,11 +343,12 @@ const instant = {
   depth_avg: depthStats.avg,
   depth_min: depthStats.min,
   depth_max: depthStats.max,
-  diameter,
-  avg_path_len: avgPathLen,
-  neighbor_avg: degStats.avg,
-  neighbor_min: degStats.min,
-  neighbor_max: degStats.max,
+  diameter: treeDiameter,
+  avg_path_len: treeAPL,           
+  neighbor_avg: neighborStats.avg,
+  neighbor_min: neighborStats.min,
+  neighbor_max: neighborStats.max,
+  round_seq: store.currentSeq,       
   computed_at_ms: nowMs
 };
 
@@ -238,6 +360,7 @@ updateRunningAvg(store.metricsAvg.apl,         instant.avg_path_len);
 
 const sinceBoot = {
   samples: store.metricsAvg.diameter.n || 0,
+  diameter: treeDiameter,
   diameter_avg: store.metricsAvg.diameter.value || 0,
   depth_avg_over_time: store.metricsAvg.depthAvg.value || 0,
   neighbor_avg_over_time: store.metricsAvg.neighborAvg.value || 0,
@@ -252,22 +375,44 @@ for (const [a, set] of Object.entries(adj)) {
 }
 const treeEdgesList = Object.entries(parents).map(([child, parent]) => [child, parent]);
 
+// ---- Per-node neighbor stats output table ----
+const perNodeNeighborStats = Object.keys(store.nodes)
+  .filter(id => id !== ROOT_ID) // usually exclude synthetic root
+  .sort((a,b)=> (+a)-(+b))
+  .map(id => {
+    const s = store.nodeNeighborStats[id] || { n:0, avg:0, min:0, max:0 };
+    return {
+      node: id,
+      samples: s.n,
+      avg_neighbors: +Number(s.avg).toFixed(2),
+      min_neighbors: s.min,
+      max_neighbors: s.max
+    };
+  });
+
 msg.payload = {
   instant,
   since_boot: sinceBoot,
   topology: {
-    nodes: nodeIds.map(id => ({
-      id,
-      is_root: id === rootId,
-      dag_rank: store.nodes[id].dagRank,
-      rank: store.nodes[id].rank
-    })),
+    nodes: nodeIds.map(id => {
+      const info = store.nodes[id];
+      return {
+        id: String(id),
+        is_root: id === rootId,
+        dag_rank: info.dagRank,
+        rank: info.rank,
+        parent: info.parentId ? String(info.parentId) : null,
+        neighbors: Array.from(info.neighbors || []).map(String).sort((a,b)=>(+a)-(+b)),
+        neighbor_count: (info.neighbors ? info.neighbors.size : 0) 
+      };
+    }),
     edges: topoEdges
   },
   rpl_tree: {
     root_id: rootId,
     edges: treeEdgesList
-  }
+  },
+  per_node_neighbor_stats: perNodeNeighborStats
 };
 
 // FlowFuse charts helper
@@ -285,8 +430,6 @@ if (store.history.length > 500) store.history.shift();
 
 // Persist
 flow.set('rplStoreSimple', store);
-
-node.log(`[RPL] root=${instant.root_id} nodes=${instant.node_count} edges=${undirectedEdges}/${treeEdges} depth_avg=${(instant.depth_avg||0).toFixed(2)} diam=${instant.diameter}`);
 
 msg.summary = {
   nodes: instant.node_count,

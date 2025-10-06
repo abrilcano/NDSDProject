@@ -32,19 +32,21 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 /*---------------------------------------------------------------------------*/
+#define RPL_CONF_OF_OCP  RPL_OCP_MRHOF
+//#define RPL_CONF_OF_OCP  RPL_OCP_OF0
+
 /* Enable TCP */
 #define UIP_CONF_TCP 1
 
 /* ND6/RPL Neighbor Cache Configuration */
-/* Reduce reachable time (default is usually 30000 ms = 30 seconds) */
 #define UIP_CONF_ND6_REACHABLE_TIME 5000  /* 5 seconds */
 
-/* Reduce retransmission timer (default is usually 1000 ms) */
-#define UIP_CONF_ND6_RETRANS_TIMER 500     /* 500 ms */
+/* Retransmission timer */
+#define UIP_CONF_ND6_RETRANS_TIMER 500     
 
 /* RPL-specific timings */
 #define RPL_CONF_PROBING_INTERVAL 25
-#define RPL_CONF_DIO_INTERVAL_MIN 12        /* Faster DIO intervals */
+#define RPL_CONF_DIO_INTERVAL_MIN 12        
 #define RPL_CONF_DIO_INTERVAL_DOUBLINGS 8
 
 /* Maximum number of neighbor solicitations */

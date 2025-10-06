@@ -1,0 +1,378 @@
+[
+    {
+        "id": "2a8a2a58f77c1232",
+        "type": "mqtt in",
+        "z": "767719ef4fa9858f",
+        "name": "MQTT Collect",
+        "topic": "rplstats/json",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ec19cef2381bdf5a",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 130,
+        "y": 220,
+        "wires": [
+            [
+                "f9d26dfd13dca820"
+            ]
+        ]
+    },
+    {
+        "id": "f9d26dfd13dca820",
+        "type": "json",
+        "z": "767719ef4fa9858f",
+        "name": "",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 330,
+        "y": 220,
+        "wires": [
+            [
+                "1c484ac0bd9c8cf9",
+                "7f2d24684128d36a"
+            ]
+        ]
+    },
+    {
+        "id": "1c484ac0bd9c8cf9",
+        "type": "function",
+        "z": "767719ef4fa9858f",
+        "name": "Data processing",
+        "func": "// RPL Update & Metrics — Simplified for single network / no dedupe\n// Assumptions: single DODAG/OF at a time, every msg has \"Node ID\", no need to de-dup,\n// synthetic root is desired, repeated Seq# harmless.\n\n'use strict';\n\n// ---- Tunables ----\nconst STALE_MS = 120000;                 // prune nodes idle > 2 min (wall-clock)\nconst COUNT_ROOT_IN_DEPTH_STATS = false; // include depth(root)=0 in stats?\nconst ROOT_ID = '1';                     // non-reporting border router\nconst ROOT_LL_FALLBACK = 'fe80::201:1:1:1';\n\n// ---- Helpers ----\nfunction getETX(a, b) {\n  const ia = store.nodes[a], ib = store.nodes[b];\n  const ab = ia?.neighCosts?.[b];\n  const ba = ib?.neighCosts?.[a];\n  if (Number.isFinite(ab) && Number.isFinite(ba)) return (ab + ba) / 2; // symmetric weight\n  if (Number.isFinite(ab)) return ab;\n  if (Number.isFinite(ba)) return ba;\n  return 1; // fallback\n}\n\nfunction dijkstraAllPairs(adjW, nodes) {\n  let diamW = 0, total = 0, pairs = 0;\n  for (const s of nodes) {\n    // init\n    const dist = new Map(nodes.map(n => [n, Infinity]));\n    dist.set(s, 0);\n    const pq = [[0, s]]; // tiny array-based PQ (ok for small N)\n\n    while (pq.length) {\n      // extract-min\n      let mi = 0;\n      for (let i = 1; i < pq.length; i++) if (pq[i][0] < pq[mi][0]) mi = i;\n      const [du, u] = pq.splice(mi, 1)[0];\n      if (du > dist.get(u)) continue;\n\n      for (const [v, w] of (adjW[u] || [])) {\n        const nd = du + w;\n        if (nd < dist.get(v)) {\n          dist.set(v, nd);\n          pq.push([nd, v]);\n        }\n      }\n    }\n\n    for (const t of nodes) {\n      if (t === s) continue;\n      const d = dist.get(t);\n      if (d !== undefined && d < Infinity) {\n        if (d > diamW) diamW = d;\n        total += d; pairs += 1;\n      }\n    }\n  }\n  return { diameterW: diamW, avgPathLenW: (pairs ? total / pairs : 0) };\n}\n\n\nfunction nodeIdFromIPv6(addr, fallback) {\n  if (typeof addr !== 'string') return fallback;\n  // Match ::201:1:1:1 or ::203:3:3:3  -> second hextet repeated is node-id\n  const m = addr.match(/::([0-9a-f]+):([0-9a-f]+):\\2:\\2$/i);\n  if (m && m[2]) {\n    const id = parseInt(m[2], 16);\n    if (!Number.isNaN(id)) return String(id);\n  }\n  // Alternate ::20XX:XX:XX:XX (less common)\n  const m2 = addr.match(/::20([0-9a-f]{2})([0-9a-f]{2}):\\2:\\2:\\2$/i);\n  if (m2) {\n    const id = parseInt(m2[2], 16);\n    if (!Number.isNaN(id)) return String(id);\n  }\n  return fallback;\n}\n\nconst adjW = {}; // weighted: id -> Array<[neighbor, weight]>\n\nfunction addWeightedEdge(adjW, a, b, w) {\n  if (!adjW[a]) adjW[a] = [];\n  if (!adjW[b]) adjW[b] = [];\n  adjW[a].push([b, w]);\n  adjW[b].push([a, w]);\n}\n\nfunction addEdge(adj, a, b) {\n  if (!adj[a]) adj[a] = new Set();\n  if (!adj[b]) adj[b] = new Set();\n  adj[a].add(b);\n  adj[b].add(a);\n}\n\nfunction bfsAllPairs(adj, nodes) {\n  let diameter = 0, total = 0, pairs = 0;\n  for (const s of nodes) {\n    const dist = {}; const q = [s]; let qi = 0;\n    dist[s] = 0;\n    while (qi < q.length) {\n      const u = q[qi++];\n      for (const v of (adj[u] || [])) {\n        if (dist[v] === undefined) {\n          dist[v] = dist[u] + 1;\n          q.push(v);\n        }\n      }\n    }\n    for (const t of nodes) {\n      if (t === s) continue;\n      if (dist[t] !== undefined) {\n        diameter = Math.max(diameter, dist[t]);\n        total += dist[t];\n        pairs += 1;\n      }\n    }\n  }\n  const avgPathLen = pairs > 0 ? total / pairs : 0;\n  return { diameter, avgPathLen };\n}\n\nfunction computeDepths(parents, rootId, nodeList) {\n  const depths = {};\n  for (const n of nodeList) {\n    let cur = n, d = 0;\n    const seen = new Set(); let ok = false;\n    while (true) {\n      if (cur === rootId) { ok = true; break; }\n      const p = parents[cur];\n      if (!p) { ok = false; break; }\n      if (seen.has(cur)) { ok = false; break; }\n      seen.add(cur);\n      cur = p; d += 1;\n      if (d > 10000) { ok = false; break; }\n    }\n    if (ok) depths[n] = d;\n  }\n  return depths;\n}\n\nfunction basicStats(arr) {\n  if (!arr.length) return { avg: 0, min: null, max: null };\n  let sum = 0, min = arr[0], max = arr[0];\n  for (const v of arr) {\n    sum += v;\n    if (v < min) min = v;\n    if (v > max) max = v;\n  }\n  return { avg: sum / arr.length, min, max };\n}\n\nfunction updateRunningAvg(avgObj, sample) {\n  avgObj.n = (avgObj.n || 0) + 1;\n  const n = avgObj.n;\n  avgObj.value = (avgObj.value || 0) + (sample - (avgObj.value || 0)) / n;\n}\n\nfunction deriveRootIpv6FromDodag(dodagId) {\n  if (typeof dodagId === 'string' && /::[0-9a-f]+:1:1:1$/i.test(dodagId)) return dodagId;\n  return ROOT_LL_FALLBACK;\n}\n\n// ---- Single-network state in flow context ----\nconst store = flow.get('rplStoreSimple') || {\n  nodes: {},                        // nodeId -> {parentId, neighbors:Set, ...}\n  startedAt: Date.now(),\n  metricsAvg: { diameter:{value:0,n:0}, depthAvg:{value:0,n:0}, neighborAvg:{value:0,n:0}, apl:{value:0,n:0} },\n  history: []\n};\n\n// ---- Ingest ----\nconst p = msg.payload || {};\nconst nowMs = Date.now();\n\n// Keep current round id (Seq #) so UI can gate updates once per round if desired\nstore.currentSeq = Number(p['Seq #'] ?? store.currentSeq ?? 0);\n\n// Require Node ID (guaranteed by assumption)\nconst nodeId = String(p['Node ID']);\nif (!nodeId) {\n  node.log('[RPL] drop: missing Node ID');\n  return null;\n}\n\n// Upsert node\nconst n = store.nodes[nodeId] || (store.nodes[nodeId] = { neighbors: new Set() });\n\n// Update basic fields\nn.ipv6     = p['IPv6 Address'] || n.ipv6;\nn.of       = p.objective_function || n.of;\nn.dag      = p['DODAG ID'] || n.dag;\nn.version  = p['DODAG Version'] ?? n.version;\nn.rank     = Number(p['RPL Rank'] ?? n.rank);\nn.dagRank  = Number(p['RPL DAG Rank'] ?? n.dagRank);\nn.isRoot   = Boolean(p.is_root); // usually false if border router is silent\nn.lastSeq  = Number(p['Seq #'] ?? n.lastSeq);\nn.lastTs   = Number(p['Timestamp'] ?? 0); // sim time (unused for pruning)\nn.lastUpdateMs = nowMs;\n\n// Parent (LL IPv6 -> node id) — normalized to string\nconst prefParentAddr = p['Preferred Parent'];\nn.parentId = prefParentAddr ? String(nodeIdFromIPv6(prefParentAddr, n.parentId)) : n.parentId;\n\n// Neighbor set\nn.neighbors = new Set();\nn.neighCosts = {}; // <--- add this map for weights\n\nconst neigh = Array.isArray(p.neighbors) ? p.neighbors : [];\nfor (const entry of neigh) {\n  const nid = nodeIdFromIPv6(entry.addr, undefined);\n  if (nid != null) {\n    const idStr = String(nid);\n    n.neighbors.add(idStr);\n\n    // Prefer ETX if available; fields are usually scaled by 128 in Contiki\n    const raw = Number(entry.etx ?? entry.rpl_link_metric ?? entry.link_metric_to_neighbor);\n    // Convert to “per-hop cost” (>=1); fall back to 1 if missing\n    let cost = 1;\n    if (Number.isFinite(raw) && raw > 0) cost = raw / 128;  // e.g., 128 -> 1.0, 384 -> 3.0\n    n.neighCosts[idStr] = Math.max(1e-6, cost);\n  }\n}\n\nnode.log(`[RPL] rx node=${nodeId} seq=${n.lastSeq} of=${n.of||'-'} parent=${n.parentId||'-'} neigh=${n.neighbors.size}`);\n\n// ---- Ensure synthetic root presence ----\nif (!store.nodes[ROOT_ID]) {\n  store.nodes[ROOT_ID] = {\n    neighbors: new Set(),\n    isRoot: true,\n    synthetic: true,\n    ipv6: deriveRootIpv6FromDodag(n.dag),\n    dag: n.dag,\n    of: n.of,\n    lastUpdateMs: nowMs\n  };\n  node.log(`[RPL] injected synthetic root id=${ROOT_ID} ipv6=${store.nodes[ROOT_ID].ipv6}`);\n} else {\n  const r = store.nodes[ROOT_ID];\n  r.isRoot = true;\n  if (r.synthetic) r.lastUpdateMs = nowMs; // never prune synthetic root\n  r.dag = r.dag || n.dag;\n  r.of  = r.of  || n.of;\n}\n\n// ---- Prune stale nodes (except synthetic root) ----\nfor (const [nid, info] of Object.entries(store.nodes)) {\n  if (nid === ROOT_ID && info.synthetic) continue;\n  if (nowMs - (info.lastUpdateMs || 0) > STALE_MS) {\n    node.log(`[RPL] prune stale node id=${nid}`);\n    delete store.nodes[nid];\n  }\n}\n\n// ---- Build graphs (mutual & fresh links) ----\nconst nodeIds = Object.keys(store.nodes);\nconst adj = {};     // undirected topology\nconst parents = {}; // child -> parent\nlet rootId = null;\n\n// Settings for freshness (helps avoid ghost edges from stale reports)\nconst LINK_FRESH_MS = 3000;     // consider a node's neighbor set fresh for 3s\n\nfunction isFresh(id) {\n  const info = store.nodes[id];\n  return info && (nowMs - (info.lastUpdateMs || 0) <= LINK_FRESH_MS);\n}\nfunction aHasB(a, b) {\n  const ia = store.nodes[a];\n  return !!(ia && ia.neighbors && ia.neighbors.has(String(b)));\n}\n\n// Undirected neighbor edges:\n// Add (a,b) if (a lists b AND b lists a) and both are fresh.\n// Special-case the synthetic root (id \"1\"): allow edge if child lists root.\nfor (const a of nodeIds) {\n  const infoA = store.nodes[a];\n  if (!adj[a]) adj[a] = new Set();\n\n  for (const b of (infoA.neighbors || [])) {\n    const A = String(a), B = String(b);\n    const isRootEdge = (B === ROOT_ID);\n    const freshEnough = isRootEdge ? isFresh(A) : (isFresh(A) && isFresh(B));\n    const mutual = isRootEdge ? aHasB(A, B) : (aHasB(A, B) && aHasB(B, A));\n    if (freshEnough && mutual) {\n      addEdge(adj, A, B);\n      const w = getETX(A, B);\n      addWeightedEdge(adjW, A, B, w);\n    }\n  }\n  // Parent pointers for the RPL tree\n  if (infoA.parentId && infoA.parentId !== a) parents[String(a)] = String(infoA.parentId);\n  if (infoA.isRoot) rootId = String(a);\n}\n\n// Prefer explicit root; else synthetic root; else pick a node with no parent\nif (!rootId && store.nodes[ROOT_ID]) rootId = ROOT_ID;\nif (!rootId && nodeIds.length) {\n  const children = new Set(Object.keys(parents));\n  rootId = nodeIds.find(id => !children.has(String(id))) || nodeIds[0];\n}\n\n// ---- Metrics ----\nconst depths = computeDepths(parents, rootId, nodeIds);\nconst depthValsAll = Object.values(depths);\nconst depthVals = COUNT_ROOT_IN_DEPTH_STATS ? [0, ...depthValsAll] : depthValsAll;\nconst depthStats = basicStats(depthVals);\n\n// (A) Snapshot neighbor stats by **reported counts** (exclude synthetic root)\nconst reportedDegs = nodeIds\n  .filter(id => id !== ROOT_ID)\n  .map(id => (store.nodes[id]?.neighbors?.size || 0));\nconst neighborStats = basicStats(reportedDegs);\n\n// (B) Diameter/APL computed on the mutual/fresh undirected graph\nconst { diameter, avgPathLen } = bfsAllPairs(adj, nodeIds);\nconst { diameterW, avgPathLenW } = dijkstraAllPairs(adjW, nodeIds);\n\n\nconst undirectedEdges = Math.floor(Object.values(adj).reduce((s, set) => s + set.size, 0) / 2);\nconst treeEdges = Object.keys(parents).length;\n\nconst instant = {\n  dag_id: store.nodes[nodeId]?.dag,\n  objective_function: store.nodes[nodeId]?.of,\n  root_id: rootId,\n  node_count: nodeIds.length,\n  undirected_edge_count: undirectedEdges,\n  tree_edge_count: treeEdges,\n  depth_avg: depthStats.avg,\n  depth_min: depthStats.min,\n  depth_max: depthStats.max,\n  diameter,\n  diameter_weighted: diameterW,           // ETX-based “routing diameter”\n  avg_path_len_weighted: avgPathLenW,\n  avg_path_len: avgPathLen,\n  // neighbor stats are COUNTS from reported sets\n  neighbor_avg: neighborStats.avg,\n  neighbor_min: neighborStats.min,\n  neighbor_max: neighborStats.max,\n  round_seq: store.currentSeq,        // <-- expose current round id\n  computed_at_ms: nowMs\n};\n\n// Since-boot running averages\nupdateRunningAvg(store.metricsAvg.diameter,    instant.diameter);\nupdateRunningAvg(store.metricsAvg.depthAvg,    instant.depth_avg);\nupdateRunningAvg(store.metricsAvg.neighborAvg, instant.neighbor_avg);\nupdateRunningAvg(store.metricsAvg.apl,         instant.avg_path_len);\n\nconst sinceBoot = {\n  samples: store.metricsAvg.diameter.n || 0,\n  diameter_avg: store.metricsAvg.diameter.value || 0,\n  depth_avg_over_time: store.metricsAvg.depthAvg.value || 0,\n  neighbor_avg_over_time: store.metricsAvg.neighborAvg.value || 0,\n  avg_path_len_over_time: store.metricsAvg.apl.value || 0,\n  started_at_ms: store.startedAt\n};\n\n// ---- Output payload ----\nconst topoEdges = [];\nfor (const [a, set] of Object.entries(adj)) {\n  for (const b of set) if (String(a) < String(b)) topoEdges.push([a, b]);\n}\nconst treeEdgesList = Object.entries(parents).map(([child, parent]) => [child, parent]);\n\nmsg.payload = {\n  instant,\n  since_boot: sinceBoot,\n  topology: {\n    nodes: nodeIds.map(id => {\n      const info = store.nodes[id];\n      return {\n        id: String(id),\n        is_root: id === rootId,\n        dag_rank: info.dagRank,\n        rank: info.rank,\n        parent: info.parentId ? String(info.parentId) : null,\n        neighbors: Array.from(info.neighbors || []).map(String).sort((a,b)=>(+a)-(+b)),\n        neighbor_count: (info.neighbors ? info.neighbors.size : 0) // <-- convenient numeric\n      };\n    }),\n    edges: topoEdges\n  },\n  rpl_tree: {\n    root_id: rootId,\n    edges: treeEdgesList\n  }\n};\n\n// FlowFuse charts helper\nmsg.metrics_series = {\n  time: nowMs,\n  diameter:    { instant: instant.diameter,    avg: sinceBoot.diameter_avg },\n  depth_avg:   { instant: instant.depth_avg,   avg: sinceBoot.depth_avg_over_time },\n  neighbor_avg:{ instant: instant.neighbor_avg,avg: sinceBoot.neighbor_avg_over_time },\n  apl:         { instant: instant.avg_path_len,avg: sinceBoot.avg_path_len_over_time }\n};\n\n// History buffer\nstore.history.push({ t: nowMs, instant });\nif (store.history.length > 500) store.history.shift();\n\n// Persist\nflow.set('rplStoreSimple', store);\n\nnode.log(`[RPL] root=${instant.root_id} nodes=${instant.node_count} edges=${undirectedEdges}/${treeEdges} depth_avg=${(instant.depth_avg||0).toFixed(2)} diam=${instant.diameter}`);\n\nmsg.summary = {\n  nodes: instant.node_count,\n  diameter: instant.diameter,\n  depth_avg: Number((instant.depth_avg || 0).toFixed(3)),\n  neighbor_avg: Number((instant.neighbor_avg || 0).toFixed(3)),\n  of: instant.objective_function,\n  root: instant.root_id\n};\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 540,
+        "y": 220,
+        "wires": [
+            [
+                "e215d513c8fd593a",
+                "3ca7ce0987d65157"
+            ]
+        ]
+    },
+    {
+        "id": "524c5a61e4ea8109",
+        "type": "ui-table",
+        "z": "767719ef4fa9858f",
+        "group": "0e210f164da5ba8a",
+        "name": "Topology",
+        "label": "",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": false,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "x": 1040,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "3aca2e968bb5f3a5",
+        "type": "ui-table",
+        "z": "767719ef4fa9858f",
+        "group": "63280d5016a90490",
+        "name": "Per Node Stats",
+        "label": "",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": false,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "x": 1060,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "547c5eddfaf60cf6",
+        "type": "ui-table",
+        "z": "767719ef4fa9858f",
+        "group": "dcfc90925da2111d",
+        "name": "General Stats",
+        "label": "",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": false,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "x": 1060,
+        "y": 340,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e215d513c8fd593a",
+        "type": "function",
+        "z": "767719ef4fa9858f",
+        "name": "Formatting",
+        "func": "// To Dashboard Tables (3 outputs) — read parent/neighbors from analyzer\n// Out 1: Topology table (Node|Parent|Neighbors)\n// Out 2: Per-node neighbor stats (Node|Avg # Neigh|min|max)  — running over time\n// Out 3: General stats (avg diameter|avg depth|min depth|max depth)\n\n'use strict';\n\n// -------- Reset handling --------\nconst isReset = msg?.topic === 'rpl/reset' || msg?.reset === true || (msg?.payload && msg.payload.reset === true);\nif (isReset) {\n  flow.set('neighborStats', {});      // clear per-node running averages\n  return [{payload:[]},{payload:[]},{payload:[]}];\n}\n\nconst snap = msg.payload;\nif (!snap || !snap.topology || !snap.rpl_tree) {\n  return [{payload:[]},{payload:[]},{payload:[]}];\n}\n\n// -------- Settings --------\nconst INCLUDE_ROOT = false;\nconst AVG_DECIMALS = 2;\nconst KPI_DECIMALS = 3;\n\n// -------- Helpers --------\nconst round = (v, d=2) => (v == null ? null : +Number(v).toFixed(d));\nconst numSort = (a, b) => (+a) - (+b);\n\n// Canonical per-node data from analyzer\nconst nodesMeta = (snap.topology.nodes || []).map(n => ({\n  id: String(n.id),\n  is_root: !!n.is_root,\n  parent: n.parent != null ? String(n.parent) : null,\n  neighbors: Array.isArray(n.neighbors) ? n.neighbors.map(String) : []\n}));\n\nconst root = String(snap.rpl_tree.root_id || '');\nconst ids = nodesMeta\n  .filter(n => INCLUDE_ROOT ? true : !n.is_root)\n  .map(n => n.id)\n  .sort(numSort);\nconst byId = Object.fromEntries(nodesMeta.map(n => [n.id, n]));\n\n// =====================================================\n// Output #1: Topology table (Node|Parent|Neighbors)\n// =====================================================\nconst topoRows = ids.map(id => {\n  const meta = byId[id] || { neighbors: [], parent: null };\n  const neighStr = meta.neighbors.slice().sort(numSort).join(',');\n  const parentStr = meta.is_root ? '—' : (meta.parent ?? '');\n  return { Node: id, Parent: parentStr, Neighbors: neighStr };\n});\n\n// =====================================================\n// Output #2: Per-node neighbor stats (running averages)\n// =====================================================\nconst stats = flow.get('neighborStats') || {};  // { [nodeId]: { n, avg, min, max, last } }\n\nfor (const id of ids) {\n  // ALWAYS compute a NUMBER here\n  const neighborsArr = Array.isArray(byId[id]?.neighbors) ? byId[id].neighbors : [];\n  const deg = neighborsArr.length;   // <-- count, not the IDs\n\n  let s = stats[id];\n  if (!s) s = stats[id] = { n: 0, avg: 0, min: deg, max: deg, last: deg };\n\n  s.n  += 1;\n  s.avg += (deg - s.avg) / s.n;      // online mean of counts\n  if (deg < s.min) s.min = deg;\n  if (deg > s.max) s.max = deg;\n  s.last = deg;\n}\nflow.set('neighborStats', stats);\n\nconst perNodeRows = ids.map(id => {\n  const s = stats[id] || { avg: 0, min: 0, max: 0 };\n  return {\n    'Node': id,\n    'Avg # Neigh': +Number(s.avg).toFixed(2),\n    'min # Neigh': s.min ?? 0,\n    'max # Neigh': s.max ?? 0\n  };\n});\n\n// =====================================================\n// Output #3: General network stats (one row)\n// =====================================================\nconst avgDiameter = round(snap.since_boot?.diameter_avg ?? snap.instant?.diameter, KPI_DECIMALS);\nconst avgDepth    = round(snap.since_boot?.depth_avg_over_time ?? snap.instant?.depth_avg, KPI_DECIMALS);\nconst minDepth    = snap.instant?.depth_min ?? null;\nconst maxDepth    = snap.instant?.depth_max ?? null;\n\nconst generalRows = [{\n  'avg diameter': avgDiameter,\n  'avg depth':    avgDepth,\n  'min depth':    minDepth,\n  'max depth':    maxDepth\n}];\n\nnode.log(`[UI] topo=${topoRows.length} nodes; avg_diam=${avgDiameter}; avg_depth=${avgDepth}`);\nreturn [\n  { payload: topoRows },\n  { payload: perNodeRows },\n  { payload: generalRows }\n];\n",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 790,
+        "y": 220,
+        "wires": [
+            [
+                "524c5a61e4ea8109",
+                "b764937f692970b1"
+            ],
+            [
+                "3aca2e968bb5f3a5"
+            ],
+            [
+                "547c5eddfaf60cf6"
+            ]
+        ]
+    },
+    {
+        "id": "bf605e6ad691e62b",
+        "type": "ui-button",
+        "z": "767719ef4fa9858f",
+        "group": "39ef0701e7a9b09d",
+        "name": "Reset",
+        "label": "Reset",
+        "order": 1,
+        "width": "1",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "{\"reset\": true}",
+        "payloadType": "str",
+        "topic": "rpl/reset",
+        "topicType": "str",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 670,
+        "y": 340,
+        "wires": [
+            [
+                "e215d513c8fd593a",
+                "524c5a61e4ea8109",
+                "3aca2e968bb5f3a5",
+                "547c5eddfaf60cf6"
+            ]
+        ]
+    },
+    {
+        "id": "ec19cef2381bdf5a",
+        "type": "mqtt-broker",
+        "name": "MQTT RPL Stats",
+        "broker": "192.168.80.27",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "0e210f164da5ba8a",
+        "type": "ui-group",
+        "name": "Topology",
+        "page": "50c1fbec14fe208c",
+        "width": 6,
+        "height": 1,
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "63280d5016a90490",
+        "type": "ui-group",
+        "name": "Node Stats",
+        "page": "50c1fbec14fe208c",
+        "width": 6,
+        "height": 1,
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "dcfc90925da2111d",
+        "type": "ui-group",
+        "name": "General Stats",
+        "page": "50c1fbec14fe208c",
+        "width": "10",
+        "height": 1,
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "39ef0701e7a9b09d",
+        "type": "ui-group",
+        "name": "Reset",
+        "page": "50c1fbec14fe208c",
+        "width": "2",
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "50c1fbec14fe208c",
+        "type": "ui-page",
+        "name": "Page 1",
+        "ui": "5d3f50370a26894a",
+        "path": "/page1",
+        "icon": "home",
+        "layout": "grid",
+        "theme": "1cd5d52600dd245c",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": 0,
+                "cols": 3
+            },
+            {
+                "name": "Tablet",
+                "px": 576,
+                "cols": 6
+            },
+            {
+                "name": "Small Desktop",
+                "px": 768,
+                "cols": 9
+            },
+            {
+                "name": "Desktop",
+                "px": 1024,
+                "cols": 12
+            }
+        ],
+        "order": 1,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "5d3f50370a26894a",
+        "type": "ui-base",
+        "name": "My Dashboard",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": 1,
+        "showDisconnectNotification": true,
+        "allowInstall": true
+    },
+    {
+        "id": "1cd5d52600dd245c",
+        "type": "ui-theme",
+        "name": "Default Theme",
+        "colors": {
+            "surface": "#ffffff",
+            "primary": "#0094CE",
+            "bgPage": "#eeeeee",
+            "groupBg": "#ffffff",
+            "groupOutline": "#cccccc"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "4px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "ffe6ec1cdb5e6e15",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "@flowfuse/node-red-dashboard": "1.26.0"
+        }
+    }
+]

@@ -49,6 +49,7 @@
 #include "dev/leds.h"
 #include "os/sys/log.h"
 #include "sys/node-id.h"
+#include "simple-udp.h"
 #include "mqtt-client.h"
 #ifdef CONTIKI_TARGET_COOJA
 #include "dev/moteid.h"
@@ -190,6 +191,12 @@ static uint8_t state;
 #define DEFAULT_PUBLISH_INTERVAL (30 * CLOCK_SECOND)
 #define DEFAULT_KEEP_ALIVE_TIMER 60
 #define DEFAULT_RSSI_MEAS_INTERVAL (CLOCK_SECOND * 30)
+/*---------------------------------------------------------------------------*/
+/*  Link-local neighbor verification (LL-NV)  */
+#define LLNV_PROBE_PORT 61616
+#define LLNV_MAX_RECENT 16
+#define LLNV_RECENT_AGE (30 * CLOCK_SECOND)
+#define LLNV_MAX_PROBES_PER_TICK 6
 /*---------------------------------------------------------------------------*/
 #define MQTT_CLIENT_SENSOR_NONE (void *)0xFFFFFFFF
 /*---------------------------------------------------------------------------*/
@@ -534,85 +541,114 @@ init_config()
   return 1;
 }
 /*---------------------------------------------------------------------------*/
-static void lladdr_to_hex(const uip_lladdr_t *ll, char *out, size_t outlen) {
-  if(!out || outlen < 2) return;
-  if(!ll) { snprintf(out, outlen, "-"); return; }
+static void lladdr_to_hex(const uip_lladdr_t *ll, char *out, size_t outlen)
+{
+  if (!out || outlen < 2)
+    return;
+  if (!ll)
+  {
+    snprintf(out, outlen, "-");
+    return;
+  }
   /* uip_lladdr_t.addr is 8 bytes on 802.15.4 */
   char *p = out;
-  for(size_t i = 0; i < sizeof(ll->addr) && (p + 2) < (out + outlen); i++) {
+  for (size_t i = 0; i < sizeof(ll->addr) && (p + 2) < (out + outlen); i++)
+  {
     p += snprintf(p, (size_t)(out + outlen - p), "%02x", ll->addr[i]);
   }
   *p = '\0';
 }
 
-static const char *ds6_state_str(uint8_t s) {
+static const char *ds6_state_str(uint8_t s)
+{
 #if defined(NBR_INCOMPLETE)
-  switch(s) {
-    case NBR_INCOMPLETE: return "INCOMPLETE";
-    case NBR_REACHABLE:  return "REACHABLE";
-    case NBR_STALE:      return "STALE";
-    case NBR_DELAY:      return "DELAY";
-    case NBR_PROBE:      return "PROBE";
-    default:             return "?";
+  switch (s)
+  {
+  case NBR_INCOMPLETE:
+    return "INCOMPLETE";
+  case NBR_REACHABLE:
+    return "REACHABLE";
+  case NBR_STALE:
+    return "STALE";
+  case NBR_DELAY:
+    return "DELAY";
+  case NBR_PROBE:
+    return "PROBE";
+  default:
+    return "?";
   }
 #else
-  (void)s; return "?";
+  (void)s;
+  return "?";
 #endif
 }
 
-static void log_rpl_table(void) {
+static void log_rpl_table(void)
+{
   int count = 0;
   LOG_DBG("---- RPL neighbors ----\n");
-  for(rpl_nbr_t *rn = nbr_table_head(rpl_neighbors);
-      rn != NULL;
-      rn = nbr_table_next(rpl_neighbors, rn)) {
+  for (rpl_nbr_t *rn = nbr_table_head(rpl_neighbors);
+       rn != NULL;
+       rn = nbr_table_next(rpl_neighbors, rn))
+  {
 
     const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(rn);
-    char ipstr[64]; ipstr[0] = '\0';
-    if(ip) { uiplib_ipaddr_snprint(ipstr, sizeof ipstr, ip); }
+    char ipstr[64];
+    ipstr[0] = '\0';
+    if (ip)
+    {
+      uiplib_ipaddr_snprint(ipstr, sizeof ipstr, ip);
+    }
 
     /* Link stats (if available) */
     const struct link_stats *ls = rpl_neighbor_get_link_stats(rn);
-    int etx  = (ls ? ls->etx  : -1);
+    int etx = (ls ? ls->etx : -1);
     int rssi = (ls ? ls->rssi : -128);
     bool fresh = false;
     unsigned long age = 0;
 #if LINK_STATS_CONF_WITH_TIME
-    if(ls) {
+    if (ls)
+    {
       fresh = link_stats_is_fresh(ls);
-      if(ls->last_tx_time) {
+      if (ls->last_tx_time)
+      {
         age = (unsigned long)(clock_time() - ls->last_tx_time);
       }
     }
 #else
-    if(ls) {
+    if (ls)
+    {
       fresh = link_stats_is_fresh(ls);
     }
 #endif
 
-    uint16_t rank_raw  = rn->rank;
-    uint16_t dag_rank  = DAG_RANK(rn->rank);
-    bool is_parent     = rpl_neighbor_is_parent(rn);
-    bool is_pref       = (rn == curr_instance.dag.preferred_parent);
-    bool acceptable    = rpl_neighbor_is_acceptable_parent(rn);
+    uint16_t rank_raw = rn->rank;
+    uint16_t dag_rank = DAG_RANK(rn->rank);
+    bool is_parent = rpl_neighbor_is_parent(rn);
+    bool is_pref = (rn == curr_instance.dag.preferred_parent);
+    bool acceptable = rpl_neighbor_is_acceptable_parent(rn);
 
     LOG_DBG("RPL[%02d] ip=%s rank_raw=%u dag_rank=%u etx=%d rssi=%d fresh=%d age=%lu parent=%d pref=%d acceptable=%d\n",
-             ++count, ip ? ipstr : "-", rank_raw, dag_rank, etx, rssi,
-             fresh, age, is_parent, is_pref, acceptable);
+            ++count, ip ? ipstr : "-", rank_raw, dag_rank, etx, rssi,
+            fresh, age, is_parent, is_pref, acceptable);
   }
-  if(count == 0) {
+  if (count == 0)
+  {
     LOG_DBG("RPL: (empty)\n");
   }
 }
 
-static void log_ds6_table(void) {
+static void log_ds6_table(void)
+{
   int count = 0;
   LOG_DBG("---- DS6 neighbors ----\n");
-  for(uip_ds6_nbr_t *dn = uip_ds6_nbr_head();
-      dn != NULL;
-      dn = uip_ds6_nbr_next(dn)) {
+  for (uip_ds6_nbr_t *dn = uip_ds6_nbr_head();
+       dn != NULL;
+       dn = uip_ds6_nbr_next(dn))
+  {
 
-    char ipstr[64]; ipstr[0] = '\0';
+    char ipstr[64];
+    ipstr[0] = '\0';
     uiplib_ipaddr_snprint(ipstr, sizeof ipstr, &dn->ipaddr);
 
     const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
@@ -623,26 +659,227 @@ static void log_ds6_table(void) {
     int etx = -1, rssi = -128;
     bool fresh = false;
     unsigned long age = 0;
-    if(ll) {
+    if (ll)
+    {
       linkaddr_t la;
       memcpy(la.u8, ll->addr, sizeof la.u8);
       const struct link_stats *ls = link_stats_from_lladdr(&la);
-      if(ls) {
+      if (ls)
+      {
         etx = ls->etx;
         rssi = ls->rssi;
         fresh = link_stats_is_fresh(ls);
-        if(ls->last_tx_time) {
+        if (ls->last_tx_time)
+        {
           age = (unsigned long)(clock_time() - ls->last_tx_time);
         }
       }
     }
 
     LOG_DBG("DS6[%02d] ip=%s ll=%s state=%s isrouter=%d etx=%d rssi=%d fresh=%d age=%lu\n",
-             ++count, ipstr, ll ? llhex : "-", ds6_state_str(dn->state),
-             dn->isrouter, etx, rssi, fresh, age);
+            ++count, ipstr, ll ? llhex : "-", ds6_state_str(dn->state),
+            dn->isrouter, etx, rssi, fresh, age);
   }
-  if(count == 0) {
+  if (count == 0)
+  {
     LOG_DBG("DS6: (empty)\n");
+  }
+}
+/*---------------------------------------------------------------------------*/
+/* Neighbor probing */
+
+/* Recent link-local replies: proves one-hop without routing */
+typedef struct
+{
+  uip_ipaddr_t ip;
+  clock_time_t last_rx;
+  uint8_t in_use;
+} llnv_entry_t;
+
+static llnv_entry_t llnv_cache[LLNV_MAX_RECENT];
+static struct simple_udp_connection llnv_conn;
+
+// static struct etimer llnv_probe_timer;
+
+static void llnv_cache_init(void)
+{
+  memset(llnv_cache, 0, sizeof(llnv_cache));
+}
+
+static int llnv_equal(const uip_ipaddr_t *a, const uip_ipaddr_t *b)
+{
+  return uip_ip6addr_cmp(a, b);
+}
+
+static llnv_entry_t *llnv_find(const uip_ipaddr_t *ip)
+{
+  for (int i = 0; i < LLNV_MAX_RECENT; i++)
+  {
+    if (llnv_cache[i].in_use && llnv_equal(&llnv_cache[i].ip, ip))
+      return &llnv_cache[i];
+  }
+  return NULL;
+}
+
+static llnv_entry_t *llnv_alloc(const uip_ipaddr_t *ip)
+{
+  llnv_entry_t *oldest = NULL;
+  for (int i = 0; i < LLNV_MAX_RECENT; i++)
+    if (!llnv_cache[i].in_use)
+    {
+      llnv_cache[i].in_use = 1;
+      uip_ipaddr_copy(&llnv_cache[i].ip, ip);
+      llnv_cache[i].last_rx = 0;
+      return &llnv_cache[i];
+    }
+  /* evict the stalest */
+  for (int i = 0; i < LLNV_MAX_RECENT; i++)
+  {
+    if (!oldest || llnv_cache[i].last_rx < oldest->last_rx)
+      oldest = &llnv_cache[i];
+  }
+  if (oldest)
+  {
+    uip_ipaddr_copy(&oldest->ip, ip);
+    oldest->last_rx = 0;
+    oldest->in_use = 1;
+  }
+  return oldest;
+}
+
+static void llnv_mark_recent(const uip_ipaddr_t *ip)
+{
+  llnv_entry_t *e = llnv_find(ip);
+  if (!e)
+    e = llnv_alloc(ip);
+  if (e)
+    e->last_rx = clock_time();
+}
+
+static int llnv_is_recent(const uip_ipaddr_t *ip)
+{
+  llnv_entry_t *e = llnv_find(ip);
+  if (!e)
+    return 0;
+  return (clock_time() - e->last_rx) <= LLNV_RECENT_AGE;
+}
+
+/* Build fe80::/64 + IID from the 802.15.4 8-byte link-layer address.*/
+static int make_linklocal_from_ll(const uip_lladdr_t *ll, uip_ipaddr_t *out)
+{
+  if (!ll || !out)
+    return 0;
+
+  /* fe80::/64 */
+  memset(out, 0, sizeof(*out));
+  out->u8[0] = 0xfe;
+  out->u8[1] = 0x80; /* fe80:: */
+  /* u8[2..7] already zero (link-local prefix length 64) */
+
+  /* Contiki-NG 802.15.4 lladdr is 8 bytes (EUI-64-style, already IID-ready).
+   * Copy to IID (bytes 8..15) and flip U/L bit per RFC 4291 if you need to.
+   * Most builds already have a proper IID in ll->addr, so flipping is optional.
+   */
+  out->u8[8] = ll->addr[0] ^ 0x02; /* flip the U/L bit */
+  out->u8[9] = ll->addr[1];
+  out->u8[10] = ll->addr[2];
+  out->u8[11] = ll->addr[3];
+  out->u8[12] = ll->addr[4];
+  out->u8[13] = ll->addr[5];
+  out->u8[14] = ll->addr[6];
+  out->u8[15] = ll->addr[7];
+  return 1;
+}
+// UDP Reciever handler
+static void llnv_rx_cb(struct simple_udp_connection *c,
+                       const uip_ipaddr_t *sender_addr,
+                       uint16_t sender_port,
+                       const uip_ipaddr_t *receiver_addr,
+                       uint16_t receiver_port,
+                       const uint8_t *data, uint16_t datalen)
+{
+  /* Only consider link-local senders (fe80::/10) */
+  if (uip_is_addr_linklocal(sender_addr))
+  {
+    LOG_DBG("LLNV: rx from ");
+    LOG_DBG_6ADDR(sender_addr);
+
+    /* mark proof and echo back */
+    llnv_mark_recent(sender_addr);
+    simple_udp_sendto(&llnv_conn, data, datalen, sender_addr);
+    LOG_DBG("LLNV: echoed to ");
+    LOG_DBG_6ADDR(sender_addr);
+    LOG_DBG_("\n");
+  }
+}
+
+// UDP Prober
+static void llnv_send_probe(const uip_ipaddr_t *ll_ip)
+{
+  static const char payload[] = "P"; /* tiny */
+  if (!ll_ip)
+    return;
+  if (!uip_is_addr_linklocal(ll_ip))
+    return; /* safety */
+  simple_udp_sendto(&llnv_conn, payload, sizeof(payload), ll_ip);
+  LOG_DBG("LLNV: probe -> ");
+  LOG_DBG_6ADDR(ll_ip);
+  LOG_DBG_("\n");
+}
+
+static void llnv_probe_candidates(void)
+{
+  int sent = 0;
+
+  /* Pass 1: RPL neighbors (prefer their IP; many are already link-local) */
+  for (rpl_nbr_t *rn = nbr_table_head(rpl_neighbors);
+       rn && sent < LLNV_MAX_PROBES_PER_TICK;
+       rn = nbr_table_next(rpl_neighbors, rn))
+  {
+
+    const uip_ipaddr_t *rip = rpl_neighbor_get_ipaddr(rn);
+    uip_ipaddr_t ll_ip;
+    const uip_ipaddr_t *dst = NULL;
+
+    if (rip && uip_is_addr_linklocal(rip))
+    {
+      dst = rip; /* already link-local */
+    }
+    else
+    {
+      /* try DS6 mapping via lladdr */
+      uip_ds6_nbr_t *dn = rip ? uip_ds6_nbr_lookup(rip) : NULL;
+      const uip_lladdr_t *ll = dn ? uip_ds6_nbr_get_ll(dn) : NULL;
+      if (ll && make_linklocal_from_ll(ll, &ll_ip))
+        dst = &ll_ip;
+    }
+
+    if (!dst)
+      continue; /* no link-local → skip */
+    if (llnv_is_recent(dst))
+      continue; /* already fresh */
+
+    llnv_send_probe(dst);
+    sent++;
+  }
+
+  /* Pass 2: DS6 neighbors (emit those not covered above) */
+  for (uip_ds6_nbr_t *dn = uip_ds6_nbr_head();
+       dn && sent < LLNV_MAX_PROBES_PER_TICK;
+       dn = uip_ds6_nbr_next(dn))
+  {
+
+    const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
+    uip_ipaddr_t ll_ip;
+    if (!ll || !make_linklocal_from_ll(ll, &ll_ip))
+      continue;
+
+    /* If it was already probed/fresh through pass 1, skip */
+    if (llnv_is_recent(&ll_ip))
+      continue;
+
+    llnv_send_probe(&ll_ip);
+    sent++;
   }
 }
 
@@ -679,7 +916,7 @@ static void publish(void)
 
   log_rpl_table();
   log_ds6_table();
-  
+  // llnv_probe_candidates();
 
   /* IPv6 global address */
   global_addr = uip_ds6_get_global(ADDR_PREFERRED);
@@ -774,61 +1011,65 @@ static void publish(void)
 
   bool first = true;
 
-  /* ---- Pass 1: RPL neighbors (fresh only); merge DS6 info if present ---- */
+  /* ---- Pass 1: RPL neighbors (one-hop proven only); merge DS6 info if present ---- */
   for (rpl_nbr_t *rn = nbr_table_head(rpl_neighbors); rn; rn = nbr_table_next(rpl_neighbors, rn))
   {
     if (remaining < 220)
       break;
 
-    uint16_t my_dag = DAG_RANK(curr_instance.dag.rank);
-    uint16_t nb_dag = DAG_RANK(rn->rank);
-    bool parent = rpl_neighbor_is_parent(rn);
-    bool candidate = rpl_neighbor_is_acceptable_parent(rn);
-    bool upward = (nb_dag < my_dag);
-    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(rn);
+    const uip_ipaddr_t *rip = rpl_neighbor_get_ipaddr(rn);
+    if (!rip)
+      continue;
 
-    /* DS6 recency: only "recent" will earn +ds6 */
-    bool ds6_recent = false;
-    uip_ds6_nbr_t *dn = uip_ds6_nbr_lookup(ip);
+    /* Find DS6 entry (for lladdr / state / isrouter merge) */
+    uip_ds6_nbr_t *dn = uip_ds6_nbr_lookup(rip);
     const uip_lladdr_t *uip_ll = dn ? uip_ds6_nbr_get_ll(dn) : NULL;
-    const struct link_stats *ls_ds6 = NULL;
-    linkaddr_t la;
-    if (uip_ll)
+
+    /* Build/choose a link-local IP for one-hop proof */
+    uip_ipaddr_t dst_ll_tmp;
+    const uip_ipaddr_t *dst_ll = NULL;
+    if (uip_is_addr_linklocal(rip))
     {
-      memcpy(la.u8, uip_ll->addr, sizeof(la.u8));
-      ls_ds6 = link_stats_from_lladdr(&la);
+      dst_ll = rip;
+    }
+    else if (uip_ll && make_linklocal_from_ll(uip_ll, &dst_ll_tmp))
+    {
+      dst_ll = &dst_ll_tmp;
     }
 
-#if defined(LINK_STATS_CONF_WITH_TIME) && LINK_STATS_CONF_WITH_TIME
-    if (ls_ds6 && ls_ds6->last_tx_time && (clock_time() - ls_ds6->last_tx_time) <= DS6_MAX_AGE)
-    {
-      ds6_recent = true;
-    }
-    if (!ds6_recent){
-      LOG_DBG("DS6 not recent: last_tx_time %lu, age %lu\n", ls_ds6->last_tx_time, clock_time() - ls_ds6->last_tx_time);
-    }
-#endif
-
-    /* Only keep neighbors that are routing relevant or are recent */
-    // bool include = (parent || candidate || upward || ds6_recent);
-    bool include = (ds6_recent);
+    if (!dst_ll)
+      continue; /* cannot prove one-hop */
 
     char ipstr[64];
-    uiplib_ipaddr_snprint(ipstr, sizeof(ipstr), ip);
+    uiplib_ipaddr_snprint(ipstr, sizeof ipstr, rip);
 
-    if (!include)
+    bool recent_ok = (dst_ll && llnv_is_recent(dst_ll));
+    bool is_preferred = (rn == curr_instance.dag.preferred_parent);
+    bool is_defrouter = false;
+    const uip_ipaddr_t *dr = uip_ds6_defrt_choose();
+    if (dr)
     {
-      /* Skip stale neighbors (either RPL or DS6 not recent) */
-      LOG_DBG("Skipping stale neighbor %s: (rank %u, dag %u)(parent %u, candidate %u, upward %u, ds6_recent %u)\n",
-            ipstr, nb_dag, my_dag, parent, candidate, upward, ds6_recent);
+      /* compare with RPL IP; also compare with link-local we derived */
+      if ((rip && uip_ipaddr_cmp(dr, rip)) || (dst_ll && uip_ipaddr_cmp(dr, dst_ll)))
+      {
+        is_defrouter = true;
+      }
+    }
+
+    /* final allow/deny */
+    bool allow = (recent_ok || is_preferred || is_defrouter);
+    if (!allow)
+    {
+      /* warm it up for next time: probe only if we have a link-local */
+      if (dst_ll)
+        llnv_send_probe(dst_ll);
+      LOG_DBG("Skipping RPL nbr %s, recent %d, preferred %d, defrouter %d\n", ipstr, recent_ok, is_preferred, is_defrouter);
       continue;
     }
 
-    LOG_DBG("Including neighbor %s : (rank %u, dag %u) (parent %u, candidate %u, upward %u, ds6_recent %u)\n",
-            ipstr, nb_dag, my_dag, parent, candidate, upward, ds6_recent);
+    LOG_DBG("Emitting RPL nbr %s, recent: %d, preferred: %d, defrouter: %d\n", ipstr, recent_ok, is_preferred, is_defrouter);
 
-
-    /* Emit the neighbor entry */
+    /* From here down, we *emit* the neighbor */
     if (!first)
     {
       len = snprintf(buf_ptr, remaining, ",");
@@ -845,14 +1086,12 @@ static void publish(void)
     remaining -= len;
     buf_ptr += len;
 
-    /* Link-layer address (if available) */
+    /* LLADDR (from DS6 if available) */
     if (uip_ll)
     {
       char llbuf[2 * sizeof(uip_ll->addr) + 1];
       for (size_t i = 0; i < sizeof(uip_ll->addr); i++)
-      {
         snprintf(&llbuf[2 * i], 3, "%02x", uip_ll->addr[i]);
-      }
       len = snprintf(buf_ptr, remaining, "\"lladdr\":\"%s\",", llbuf);
     }
     else
@@ -879,44 +1118,14 @@ static void publish(void)
     remaining -= len;
     buf_ptr += len;
 
-#ifndef LINK_STATS_RSSI_UNKNOWN
-#define LINK_STATS_RSSI_UNKNOWN (-100)
-#endif
-#ifdef LINK_STATS_ETX_INIT
-    bool etx_known = (ls_ds6 && ls_ds6->etx != LINK_STATS_ETX_INIT);
-#else
-    bool etx_known = (ls_ds6 != NULL);
-#endif
-    bool rssi_known = (ls_ds6 && ls_ds6->rssi > LINK_STATS_RSSI_UNKNOWN);
-
-    /* ETX/RSSI number-or-null */
-    if (etx_known)
-    {
-      len = snprintf(buf_ptr, remaining, "\"etx\":%u,", ls_ds6->etx);
-    }
-    else
-    {
-      len = snprintf(buf_ptr, remaining, "\"etx\":null,");
-    }
+    /* You can keep your ETX/RSSI merge if you want; or set to null to simplify */
+    len = snprintf(buf_ptr, remaining, "\"etx\":null,\"rssi\":null,");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
 
-    if (rssi_known)
-    {
-      len = snprintf(buf_ptr, remaining, "\"rssi\":%d,", ls_ds6->rssi);
-    }
-    else
-    {
-      len = snprintf(buf_ptr, remaining, "\"rssi\":null,");
-    }
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-
-    /* RPL fields (always present in this pass) */
+    /* RPL fields */
     len = snprintf(buf_ptr, remaining,
                    "\"rpl_rank_raw\":%u,\"rpl_dag_rank\":%u,\"rpl_link_metric\":%u,",
                    (unsigned)rn->rank, (unsigned)DAG_RANK(rn->rank), rpl_neighbor_get_link_metric(rn));
@@ -935,46 +1144,45 @@ static void publish(void)
     buf_ptr += len;
 
     /* Source tag */
-    len = snprintf(buf_ptr, remaining, "\"source\":\"rpl+ds6\"}");
+    len = snprintf(buf_ptr, remaining, "\"source\":\"%s\"}", dn ? "rpl+ds6" : "rpl");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
   }
 
-  /* ---- Pass 2: DS6 neighbors (recent only), skip ones covered by fresh RPL ---- */
+  /* ---- Pass 2: DS6 neighbors (one-hop proven only), skip ones already emitted by RPL pass ---- */
   for (uip_ds6_nbr_t *dn = uip_ds6_nbr_head(); dn; dn = uip_ds6_nbr_next(dn))
   {
     if (remaining < 250)
       break;
 
-    uip_ipaddr_t *ip = &dn->ipaddr;
-    rpl_nbr_t *rn = rpl_neighbor_get_from_ipaddr(ip);
-    if (rn && rpl_neighbor_is_fresh(rn))
-      continue; /* Skip fresh RPL neighbors already added */
-
-    /* DS6 recency gate: warm-up or last_tx_time age */
-    bool recent = false;
-#if defined(LINK_STATS_CONF_WITH_TIME) && LINK_STATS_CONF_WITH_TIME
-    const uip_lladdr_t *uip_ll = uip_ds6_nbr_get_ll(dn);
-    const struct link_stats *ls = NULL;
-    linkaddr_t la;
-    if (uip_ll)
+    /* If RPL has this neighbor, it was already considered in Pass 1 */
+    uip_ipaddr_t *gip = &dn->ipaddr;
+    rpl_nbr_t *rn = rpl_neighbor_get_from_ipaddr(gip);
+    char ipstr[64];
+    uiplib_ipaddr_snprint(ipstr, sizeof ipstr, gip);
+    if (rn)
     {
-      memcpy(la.u8, uip_ll->addr, sizeof(la.u8));
-      ls = link_stats_from_lladdr(&la);
-    }
-    if (clock_seconds() < DS6_WARMUP_S)
-    {
-      recent = true;
-    }
-    else if (ls && ls->last_tx_time && (clock_time() - ls->last_tx_time) <= DS6_MAX_AGE)
-    {
-      recent = true;
-    }
-#endif
-    if (!recent)
+      // LOG_DBG("Skipping DS6 nbr %s (in RPL)\n", ipstr);
       continue;
+    }
+
+    /* Build link-local from LLADDR for one-hop proof */
+    const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
+    uip_ipaddr_t dst_ll;
+    if (!ll || !make_linklocal_from_ll(ll, &dst_ll))
+      continue;
+
+    /* Only include if recently proven one hop */
+    if (!llnv_is_recent(&dst_ll))
+    {
+      llnv_send_probe(&dst_ll);
+      LOG_DBG("Skipping DS6 nbr %s (not recent)\n", ipstr);
+      continue;
+    }
+
+    LOG_DBG("Emitting DS6 nbr %s\n", ipstr);
 
     /* Emit DS6-only neighbor */
     if (!first)
@@ -987,35 +1195,22 @@ static void publish(void)
     }
     first = false;
 
-    char ipstr[64];
-    uiplib_ipaddr_snprint(ipstr, sizeof(ipstr), ip);
     len = snprintf(buf_ptr, remaining, "{\"addr\":\"%s\",", ipstr);
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
 
-    const uip_lladdr_t *ll = uip_ds6_nbr_get_ll(dn);
-    if (ll)
-    {
-      char llbuf[2 * sizeof(ll->addr) + 1];
-      for (size_t i = 0; i < sizeof(ll->addr); i++)
-      {
-        snprintf(&llbuf[2 * i], 3, "%02x", ll->addr[i]);
-      }
-      len = snprintf(buf_ptr, remaining, "\"lladdr\":\"%s\",", llbuf);
-    }
-    else
-    {
-      len = snprintf(buf_ptr, remaining, "\"lladdr\":null,");
-    }
+    char llbuf[2 * sizeof(ll->addr) + 1];
+    for (size_t i = 0; i < sizeof(ll->addr); i++)
+      snprintf(&llbuf[2 * i], 3, "%02x", ll->addr[i]);
+    len = snprintf(buf_ptr, remaining, "\"lladdr\":\"%s\",", llbuf);
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
 
-    len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,",
-                   dn->state, dn->isrouter ? "true" : "false");
+    len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,", dn->state, dn->isrouter ? "true" : "false");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
@@ -1032,16 +1227,6 @@ static void publish(void)
     remaining -= len;
     buf_ptr += len;
   }
-
-  /* Close neighbors array */
-  len = snprintf(buf_ptr, remaining, "]");
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (neighbors close)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
 
   /* Objective function */
   const char *of_name = "Unknown";
@@ -1467,6 +1652,7 @@ state_machine(void)
         leds_on(MQTT_CLIENT_STATUS_LED);
         ctimer_set(&ct, PUBLISH_LED_ON_DURATION, publish_led_off, NULL);
         LOG_DBG("Publishing\n");
+
         publish();
       }
       etimer_set(&publish_periodic_timer, conf.pub_interval);
@@ -1569,6 +1755,10 @@ PROCESS_THREAD(mqtt_client_process, ev, data)
 
   update_config();
 
+  simple_udp_register(&llnv_conn, LLNV_PROBE_PORT, NULL, LLNV_PROBE_PORT, llnv_rx_cb);
+  LOG_INFO("LLNV: simple-udp registered on port %u\n", LLNV_PROBE_PORT);
+  llnv_cache_init();
+
   def_rt_rssi = 0x8000000;
   uip_icmp6_echo_reply_callback_add(&echo_reply_notification,
                                     echo_reply_handler);
@@ -1601,6 +1791,7 @@ PROCESS_THREAD(mqtt_client_process, ev, data)
     if (ev == PROCESS_EVENT_TIMER && data == &echo_request_timer)
     {
       ping_parent();
+      llnv_probe_candidates();
       etimer_set(&echo_request_timer, conf.def_rt_ping_interval);
     }
   }
