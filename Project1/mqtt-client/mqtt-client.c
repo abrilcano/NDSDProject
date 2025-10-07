@@ -541,6 +541,7 @@ init_config()
   return 1;
 }
 /*---------------------------------------------------------------------------*/
+// Logging helpers
 static void lladdr_to_hex(const uip_lladdr_t *ll, char *out, size_t outlen)
 {
   if (!out || outlen < 2)
@@ -801,15 +802,15 @@ static void llnv_rx_cb(struct simple_udp_connection *c,
   /* Only consider link-local senders (fe80::/10) */
   if (uip_is_addr_linklocal(sender_addr))
   {
-    LOG_DBG("LLNV: rx from ");
-    LOG_DBG_6ADDR(sender_addr);
+    // LOG_DBG("LLNV: rx from ");
+    // LOG_DBG_6ADDR(sender_addr);
 
     /* mark proof and echo back */
     llnv_mark_recent(sender_addr);
     simple_udp_sendto(&llnv_conn, data, datalen, sender_addr);
-    LOG_DBG("LLNV: echoed to ");
-    LOG_DBG_6ADDR(sender_addr);
-    LOG_DBG_("\n");
+    // LOG_DBG("LLNV: echoed to ");
+    // LOG_DBG_6ADDR(sender_addr);
+    // LOG_DBG_("\n");
   }
 }
 
@@ -895,7 +896,7 @@ static void publish(void)
 {
   int len;
   int remaining = APP_BUFFER_SIZE;
-  int i;
+  // int i;
   char def_rt_str[64];
   char ipv6_addr_str[64];
   char node_id_str[32];
@@ -1103,28 +1104,6 @@ static void publish(void)
     remaining -= len;
     buf_ptr += len;
 
-    /* DS6 state/isrouter if available, else nulls */
-    if (dn)
-    {
-      len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,",
-                     dn->state, dn->isrouter ? "true" : "false");
-    }
-    else
-    {
-      len = snprintf(buf_ptr, remaining, "\"state\":null,\"isrouter\":null,");
-    }
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-
-    /* You can keep your ETX/RSSI merge if you want; or set to null to simplify */
-    len = snprintf(buf_ptr, remaining, "\"etx\":null,\"rssi\":null,");
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-
     /* RPL fields */
     len = snprintf(buf_ptr, remaining,
                    "\"rpl_rank_raw\":%u,\"rpl_dag_rank\":%u,\"rpl_link_metric\":%u,",
@@ -1135,16 +1114,9 @@ static void publish(void)
     buf_ptr += len;
 
     len = snprintf(buf_ptr, remaining,
-                   "\"is_rpl_parent\":%s,\"is_preferred_parent\":%s,",
+                   "\"is_rpl_parent\":%s,\"is_preferred_parent\":%s}",
                    rpl_neighbor_is_parent(rn) ? "true" : "false",
                    (rn == curr_instance.dag.preferred_parent) ? "true" : "false");
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-
-    /* Source tag */
-    len = snprintf(buf_ptr, remaining, "\"source\":\"%s\"}", dn ? "rpl+ds6" : "rpl");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
@@ -1209,24 +1181,25 @@ static void publish(void)
       break;
     remaining -= len;
     buf_ptr += len;
-
-    len = snprintf(buf_ptr, remaining, "\"state\":%u,\"isrouter\":%s,", dn->state, dn->isrouter ? "true" : "false");
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-
     /* DS6-only: no RPL metrics */
     len = snprintf(buf_ptr, remaining,
-                   "\"etx\":null,\"rssi\":null,"
                    "\"rpl_rank_raw\":null,\"rpl_dag_rank\":null,\"rpl_link_metric\":null,"
-                   "\"is_rpl_parent\":false,\"is_preferred_parent\":false,"
-                   "\"source\":\"ds6\"}");
+                   "\"is_rpl_parent\":false,\"is_preferred_parent\":false}");
     if (len < 0 || len >= remaining)
       break;
     remaining -= len;
     buf_ptr += len;
   }
+
+  /* Close neighbors array */
+  len = snprintf(buf_ptr, remaining, "]");
+  if (len < 0 || len >= remaining)
+  {
+    LOG_ERR("Buffer too short (neighbors close)\n");
+    return;
+  }
+  remaining -= len;
+  buf_ptr += len;
 
   /* Objective function */
   const char *of_name = "Unknown";
@@ -1256,201 +1229,6 @@ static void publish(void)
   }
   remaining -= len;
   buf_ptr += len;
-
-  /* =========================
-   *   parent_set (acceptable)
-   * ========================= */
-  len = snprintf(buf_ptr, remaining, ",\"parent_set\":[");
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (parent_set open)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  bool first_parent = true;
-  char parent_addr_str[64];
-
-  for (rpl_nbr_t *pn = nbr_table_head(rpl_neighbors);
-       pn != NULL;
-       pn = nbr_table_next(rpl_neighbors, pn))
-  {
-
-    if (remaining < 200)
-      break; /* keep room for tail */
-    /* Skip non-upward neighbors (children/peers) */
-    if (DAG_RANK(pn->rank) >= DAG_RANK(curr_instance.dag.rank))
-    {
-      continue;
-    }
-
-    /* Only include acceptable parents in parent_set */
-    if (!rpl_neighbor_is_acceptable_parent(pn))
-    {
-      continue;
-    }
-
-    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(pn);
-    if (ip)
-      uiplib_ipaddr_snprint(parent_addr_str, sizeof(parent_addr_str), ip);
-    else
-      strcpy(parent_addr_str, "unknown");
-
-    uint16_t link_metric = rpl_neighbor_get_link_metric(pn);
-    rpl_rank_t path_metric = rpl_neighbor_rank_via_nbr(pn);
-
-    if (!first_parent)
-    {
-      len = snprintf(buf_ptr, remaining, ",");
-      if (len < 0 || len >= remaining)
-        break;
-      remaining -= len;
-      buf_ptr += len;
-    }
-    first_parent = false;
-
-    len = snprintf(buf_ptr, remaining,
-                   "{"
-                   "\"addr\":\"%s\","
-                   "\"neighbor_rank\":%u,"
-                   "\"neighbor_dag_rank\":%u,"
-                   "\"link_metric_to_neighbor\":%u,"
-                   "\"path_metric_via_neighbor\":%u,"
-                   "\"is_preferred\":%s"
-                   "}",
-                   parent_addr_str,
-                   pn->rank,
-                   DAG_RANK(pn->rank),
-                   link_metric,
-                   path_metric,
-                   (pn == curr_instance.dag.preferred_parent) ? "true" : "false");
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-  }
-
-  len = snprintf(buf_ptr, remaining, "]");
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (parent_set close)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  /* =========================================
-   *   parent_candidates (upward + acceptable flag)
-   * ========================================= */
-  len = snprintf(buf_ptr, remaining, ",\"parent_candidates\":[");
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (parent_candidates open)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  bool first_cand = true;
-
-  for (rpl_nbr_t *cn = nbr_table_head(rpl_neighbors);
-       cn != NULL;
-       cn = nbr_table_next(rpl_neighbors, cn))
-  {
-
-    if (remaining < 200)
-      break;
-
-    /* Consider only upward neighbors */
-    uint16_t my_dag_rank = DAG_RANK(curr_instance.dag.rank);
-    uint16_t nbr_dag_rank = DAG_RANK(cn->rank);
-    if (nbr_dag_rank >= my_dag_rank)
-    {
-      continue;
-    }
-
-    const uip_ipaddr_t *ip = rpl_neighbor_get_ipaddr(cn);
-    if (ip)
-      uiplib_ipaddr_snprint(parent_addr_str, sizeof(parent_addr_str), ip);
-    else
-      strcpy(parent_addr_str, "unknown");
-
-    bool acceptable = rpl_neighbor_is_acceptable_parent(cn);
-    uint16_t link_metric = rpl_neighbor_get_link_metric(cn);
-    rpl_rank_t path_metric = rpl_neighbor_rank_via_nbr(cn);
-
-    if (!first_cand)
-    {
-      len = snprintf(buf_ptr, remaining, ",");
-      if (len < 0 || len >= remaining)
-        break;
-      remaining -= len;
-      buf_ptr += len;
-    }
-    first_cand = false;
-
-    len = snprintf(buf_ptr, remaining,
-                   "{"
-                   "\"addr\":\"%s\","
-                   "\"neighbor_rank\":%u,"
-                   "\"neighbor_dag_rank\":%u,"
-                   "\"acceptable\":%s,"
-                   "\"link_metric_to_neighbor\":%u,"
-                   "\"path_metric_via_neighbor\":%u,"
-                   "\"is_parent\":%s,"
-                   "\"is_preferred\":%s"
-                   "}",
-                   parent_addr_str,
-                   cn->rank,
-                   nbr_dag_rank,
-                   acceptable ? "true" : "false",
-                   link_metric,
-                   path_metric,
-                   rpl_neighbor_is_parent(cn) ? "true" : "false",
-                   (cn == curr_instance.dag.preferred_parent) ? "true" : "false");
-    if (len < 0 || len >= remaining)
-      break;
-    remaining -= len;
-    buf_ptr += len;
-  }
-
-  len = snprintf(buf_ptr, remaining, "]");
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (parent_candidates close)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  /* Optional: brief reason for empty parent_set (handy for backend) */
-  const char *ps_reason =
-      is_root ? "root" : (curr_instance.dag.preferred_parent == NULL) ? "not_joined"
-                     : (first_parent == true)                         ? "no_acceptable_parents"
-                                                                      : "ok";
-
-  len = snprintf(buf_ptr, remaining, ",\"parent_set_reason\":\"%s\"", ps_reason);
-  if (len < 0 || len >= remaining)
-  {
-    LOG_ERR("Buffer too short (parent_set_reason)\n");
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  /* Extensions, if any */
-  for (i = 0; i < mqtt_client_extension_count; i++)
-  {
-    len = snprintf(buf_ptr, remaining, ",%s", mqtt_client_extensions[i] ? mqtt_client_extensions[i]->value() : "");
-    if (len < 0 || len >= remaining)
-    {
-      LOG_ERR("Buffer too short (ext)\n");
-      return;
-    }
-    remaining -= len;
-    buf_ptr += len;
-  }
 
   /* Close JSON */
   len = snprintf(buf_ptr, remaining, "}");
