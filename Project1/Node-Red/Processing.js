@@ -63,12 +63,12 @@ function computeDepths(parents, rootId, nodeList) {
   for (const n of nodeList) {
     let cur = n, d = 0; const seen = new Set(); let ok = false;
     while (true) {
-      if (cur === rootId) { ok = true; break; }
+      if (cur === rootId) { ok = true; break; } // arrived to the root
       const p = parents[cur];
       if (!p) { ok = false; break; }
-      if (seen.has(cur)) { ok = false; break; }
-      seen.add(cur);
-      cur = p; d += 1;
+      if (seen.has(cur)) { ok = false; break; } // loop found
+      seen.add(cur); // register seen node
+      cur = p; d += 1; // move up and increase depth
       if (d > 10000) { ok = false; break; }
     }
     if (ok) depths[n] = d;

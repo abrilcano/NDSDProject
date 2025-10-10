@@ -32,8 +32,19 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 /*---------------------------------------------------------------------------*/
+#define RPL_CONF_WITH_OF0     1
+#define RPL_CONF_WITH_MRHOF   0
 #define RPL_CONF_OF_OCP  RPL_OCP_MRHOF
-//#define RPL_CONF_OF_OCP  RPL_OCP_OF0
+#define RPL_CONF_MOP RPL_MOP_NON_STORING
+#define RPL_CONF_WITH_MC 0
+#define RPL_CONF_SUPPORTED_OFS { &rpl_mrhof }
+
+//#define RPL_CONF_WITH_MRHOF 0
+//#define RPL_CONF_WITH_OF0 1
+//#define RPL_CONF_OF_OCP RPL_OCP_OF0
+//#define RPL_CONF_MOP RPL_MOP_NON_STORING
+//#define RPL_CONF_WITH_MC 0
+//#define RPL_CONF_SUPPORTED_OFS { &rpl_of0 }
 
 /* Enable TCP */
 #define UIP_CONF_TCP 1

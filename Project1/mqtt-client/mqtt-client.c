@@ -37,6 +37,7 @@
 #include "net/ipv6/uip-icmp6.h"
 #include "net/ipv6/sicslowpan.h"
 #include "net/ipv6/uiplib.h"
+#include "net/routing/rpl-lite/rpl-conf.h"
 #include "net/routing/rpl-lite/rpl.h"
 #include "net/routing/rpl-lite/rpl-neighbor.h"
 #include "net/routing/rpl-lite/rpl-const.h"
@@ -195,7 +196,7 @@ static uint8_t state;
 /*  Link-local neighbor verification (LL-NV)  */
 #define LLNV_PROBE_PORT 61616
 #define LLNV_MAX_RECENT 16
-#define LLNV_RECENT_AGE (30 * CLOCK_SECOND)
+#define LLNV_RECENT_AGE (60 * CLOCK_SECOND)
 #define LLNV_MAX_PROBES_PER_TICK 6
 /*---------------------------------------------------------------------------*/
 #define MQTT_CLIENT_SENSOR_NONE (void *)0xFFFFFFFF
@@ -802,8 +803,9 @@ static void llnv_rx_cb(struct simple_udp_connection *c,
   /* Only consider link-local senders (fe80::/10) */
   if (uip_is_addr_linklocal(sender_addr))
   {
-    // LOG_DBG("LLNV: rx from ");
-    // LOG_DBG_6ADDR(sender_addr);
+    //LOG_DBG("LLNV: rx from ");
+    //LOG_DBG_6ADDR(sender_addr);
+    //LOG_DBG_("\n");
 
     /* mark proof and echo back */
     llnv_mark_recent(sender_addr);
@@ -1210,6 +1212,7 @@ static void publish(void)
     else if (curr_instance.of->ocp == RPL_OCP_MRHOF)
       of_name = "MRHOF";
   }
+  LOG_DBG("Objective function: %s \n", of_name);
   len = snprintf(buf_ptr, remaining, ",\"objective_function\":\"%s\"", of_name);
   if (len < 0 || len >= remaining)
   {

@@ -5,17 +5,49 @@
 
 'use strict';
 
-// -------- Reset handling --------
-const isReset = msg?.topic === 'rpl/reset' || msg?.reset === true || (msg?.payload && msg.payload.reset === true);
+// -------- Reset handling (also clears analyzer store) --------
+const isReset =
+  msg?.topic === 'rpl/reset' ||
+  msg?.reset === true ||
+  (msg?.payload && msg.payload.reset === true);
+
 if (isReset) {
-  // No local running state anymore; just clear tables
-  return [{ payload: [] }, { payload: [] }, { payload: [] }];
+  // Recreate the analyzer's store in the same shape it expects
+  const fresh = {
+    nodes: {},
+    startedAt: Date.now(),
+    metricsAvg: {
+      diameter:    { value: 0, n: 0 },
+      depthAvg:    { value: 0, n: 0 },
+      neighborAvg: { value: 0, n: 0 },
+      apl:         { value: 0, n: 0 }
+    },
+    history: [],
+    nodeNeighborStats: {}
+  };
+
+  // Clear analyzer state (same flow scope)
+  flow.set('rplStoreSimple', fresh);
+
+  // If you ever kept per-node viz stats in flow, clear them too
+  flow.set('neighborStats', {});  // harmless if unused
+
+  // Clear dashboard tables immediately
+  return [
+    { payload: [] }, // topology table
+    { payload: [] }, // per-node neighbor stats table
+    { payload: [] }  // general stats table
+  ];
 }
+
+// ... rest of your visualization code below ...
 
 const snap = msg.payload;
 if (!snap || !snap.topology || !snap.rpl_tree) {
   return [{ payload: [] }, { payload: [] }, { payload: [] }];
 }
+
+const summ = snap.rpl_tree.summary || {};
 
 // -------- Settings --------
 const INCLUDE_ROOT = false;
@@ -86,8 +118,10 @@ const avgDiameter = round(snap.since_boot?.diameter ?? snap.instant?.diameter, K
 const avgDepth    = round(snap.since_boot?.depth_avg_over_time ?? snap.instant?.depth_avg, KPI_DECIMALS);
 const minDepth    = snap.instant?.depth_min ?? null;
 const maxDepth    = snap.instant?.depth_max ?? null;
+const objf        = summ.objective_function || 'N/A';
 
 const generalRows = [{
+  'Objective Function': objf,
   'Diameter': avgDiameter,
   'avg depth':    avgDepth,
   'min depth':    minDepth,
